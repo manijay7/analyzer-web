@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { Transaction, Side, TransactionStatus, MatchGroup, AuditLogEntry, User, UserRole, Permission, RolePermissions, MatchStatus, SystemSnapshot, RoleRequest } from '@/lib/types';
-import { fetchTransactionsForDate } from '@/lib/dataService';
 import { TransactionTable } from './TransactionTable';
 import { HistoryPanel } from './HistoryPanel';
 import { AuditLogModal } from './AuditLogModal';
@@ -50,6 +49,11 @@ export const AnalyzerWebApp: React.FC = () => {
   // Permissions State
   const [rolePermissions, setRolePermissions] = useState<RolePermissions>(DEFAULT_ROLE_PERMISSIONS);
 
+  // File/Sheet Selection State (replacing mock date selection)
+  const [importedFiles, setImportedFiles] = useState<any[]>([]);
+  const [selectedFileId, setSelectedFileId] = useState<string>('');
+  const [availableSheets, setAvailableSheets] = useState<any[]>([]);
+  const [selectedSheetId, setSelectedSheetId] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [lockedDate, setLockedDate] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -59,6 +63,7 @@ export const AnalyzerWebApp: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [matches, setMatches] = useState<MatchGroup[]>([]);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
+  const [sheetMetadata, setSheetMetadata] = useState<Record<string, any> | null>(null);
   
   // Snapshots State
   const [snapshots, setSnapshots] = useState<SystemSnapshot[]>([]);
@@ -177,6 +182,21 @@ export const AnalyzerWebApp: React.FC = () => {
             .catch(err => {
                 // If permission denied or DB error, we just don't update the user list for admin panel
                 console.log("Could not fetch user list (likely insufficient permissions or first run)");
+            });
+        
+        // Fetch imported files for selection
+        fetch('/api/transactions/sheets')
+            .then(res => {
+                if (res.ok) return res.json();
+                throw new Error('Failed to fetch imported files');
+            })
+            .then(result => {
+                if (result.success && Array.isArray(result.data)) {
+                    setImportedFiles(result.data);
+                }
+            })
+            .catch(err => {
+                console.log("Could not fetch imported files:", err);
             });
     }
 
@@ -313,10 +333,14 @@ export const AnalyzerWebApp: React.FC = () => {
 
   // --- Core Logic ---
 
+  // Updated loadData to load from database instead of mock data
   const loadData = useCallback(async () => {
-    if (!selectedDate) return;
+    if (!selectedSheetId) {
+      alert('Please select a file and sheet to load');
+      return;
+    }
     
-    if (isPeriodLocked(selectedDate)) {
+    if (selectedDate && isPeriodLocked(selectedDate)) {
         console.log("Loading data for a closed period");
     }
     
@@ -324,15 +348,41 @@ export const AnalyzerWebApp: React.FC = () => {
     
     setIsLoading(true);
     try {
-      const { left, right } = await fetchTransactionsForDate(selectedDate);
+      // Fetch sheet data from database
+      const response = await fetch(`/api/transactions/sheets?sheetId=${selectedSheetId}`);
+      const result = await response.json();
       
-      // Tag transactions with current User ID (Separation of Duties)
-      const tagUser = (t: Transaction) => ({ ...t, importedBy: currentUser.id });
+      if (!result.success || !result.data) {
+        throw new Error(result.error || 'Failed to load sheet data');
+      }
       
-      const validLeft = left.filter(validateTransaction).map(tagUser);
-      const validRight = right.filter(validateTransaction).map(tagUser);
-      const invalidCount = (left.length + right.length) - (validLeft.length + validRight.length);
-      const allTxs = [...validLeft, ...validRight];
+      const sheetData = result.data;
+      
+      // Convert imported transactions to app Transaction format
+      const convertToTransaction = (imported: any, side: Side): Transaction => ({
+        id: `${side === Side.Left ? 'L' : 'R'}-${Math.random().toString(36).substring(2, 9)}`,
+        date: imported.date,
+        description: imported.description,
+        amount: imported.amount,
+        reference: imported.reference,
+        side: side,
+        status: TransactionStatus.Unmatched,
+        importedBy: currentUser.id
+      });
+      
+      // Convert GL transactions (Left side)
+      const leftTxs: Transaction[] = [
+        ...sheetData.glTransactions.intCr.map((t: any) => convertToTransaction(t, Side.Left)),
+        ...sheetData.glTransactions.intDr.map((t: any) => convertToTransaction(t, Side.Left))
+      ];
+      
+      // Convert Statement transactions (Right side)
+      const rightTxs: Transaction[] = [
+        ...sheetData.statementTransactions.extDr.map((t: any) => convertToTransaction(t, Side.Right)),
+        ...sheetData.statementTransactions.extCr.map((t: any) => convertToTransaction(t, Side.Right))
+      ];
+      
+      const allTxs = [...leftTxs, ...rightTxs];
       
       setTransactions(allTxs);
       setSelectedLeftIds(new Set());
@@ -343,11 +393,112 @@ export const AnalyzerWebApp: React.FC = () => {
       setHistoryStack([]);
       setFutureStack([]);
       
-      createSnapshot(`Import: ${selectedDate}`, 'IMPORT', allTxs, []);
+      // Update date from sheet metadata
+      const sheetDate = sheetData.reportingDate || new Date().toISOString().split('T')[0];
+      setSelectedDate(sheetDate);
       
-      addAuditLog("Import", `Loaded ${allTxs.length} transactions by ${currentUser.name}. ${invalidCount > 0 ? `Skipped ${invalidCount} invalid rows.` : ''}`);
+      createSnapshot(`Import: ${sheetData.name}`, 'IMPORT', allTxs, []);
+      
+      addAuditLog("Import", `Loaded ${allTxs.length} transactions from sheet "${sheetData.name}" by ${currentUser.name}`);
     } catch (e) {
       console.error("Failed to load transactions", e);
+      alert('Failed to load transaction data. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedSheetId, currentUser, selectedDate, lockedDate]);
+  
+  // Handler for file selection change
+  const handleFileChange = useCallback((fileId: string) => {
+    setSelectedFileId(fileId);
+    setSelectedSheetId('');
+    setAvailableSheets([]);
+    
+    if (!fileId) return;
+    
+    const selectedFile = importedFiles.find(f => f.id === fileId);
+    if (selectedFile && selectedFile.sheets) {
+      setAvailableSheets(selectedFile.sheets);
+      // Auto-select first sheet if available
+      if (selectedFile.sheets.length > 0) {
+        setSelectedSheetId(selectedFile.sheets[0].id);
+      }
+    }
+  }, [importedFiles]);
+  
+  // Handler for sheet selection change - auto-load data
+  const handleSheetChange = useCallback(async (sheetId: string) => {
+    setSelectedSheetId(sheetId);
+    
+    if (!sheetId) return;
+    
+    // Auto-load data for selected sheet
+    if (selectedDate && isPeriodLocked(selectedDate)) {
+        console.log("Loading data for a closed period");
+    }
+    
+    saveCheckpoint();
+    setIsLoading(true);
+    
+    try {
+      // Fetch sheet data from database
+      const response = await fetch(`/api/transactions/sheets?sheetId=${sheetId}`);
+      const result = await response.json();
+      
+      if (!result.success || !result.data) {
+        throw new Error(result.error || 'Failed to load sheet data');
+      }
+      
+      const sheetData = result.data;
+      
+      // Convert imported transactions to app Transaction format
+      const convertToTransaction = (imported: any, side: Side): Transaction => ({
+        id: `${side === Side.Left ? 'L' : 'R'}-${Math.random().toString(36).substring(2, 9)}`,
+        date: imported.date,
+        description: imported.description,
+        amount: imported.amount,
+        reference: imported.reference,
+        side: side,
+        status: TransactionStatus.Unmatched,
+        importedBy: currentUser.id
+      });
+      
+      // Convert GL transactions (Left side)
+      const leftTxs: Transaction[] = [
+        ...sheetData.glTransactions.intCr.map((t: any) => convertToTransaction(t, Side.Left)),
+        ...sheetData.glTransactions.intDr.map((t: any) => convertToTransaction(t, Side.Left))
+      ];
+      
+      // Convert Statement transactions (Right side)
+      const rightTxs: Transaction[] = [
+        ...sheetData.statementTransactions.extDr.map((t: any) => convertToTransaction(t, Side.Right)),
+        ...sheetData.statementTransactions.extCr.map((t: any) => convertToTransaction(t, Side.Right))
+      ];
+      
+      const allTxs = [...leftTxs, ...rightTxs];
+      
+      setTransactions(allTxs);
+      setSelectedLeftIds(new Set());
+      setSelectedRightIds(new Set());
+      setSelectedHistoryIds(new Set());
+      setMatches([]);
+      setMatchComment("");
+      setHistoryStack([]);
+      setFutureStack([]);
+      
+      // Store sheet metadata
+      setSheetMetadata(sheetData.metadata || {});
+      
+      // Update date from sheet metadata
+      const sheetDate = sheetData.reportingDate || new Date().toISOString().split('T')[0];
+      setSelectedDate(sheetDate);
+      
+      createSnapshot(`Import: ${sheetData.name}`, 'IMPORT', allTxs, []);
+      
+      addAuditLog("Import", `Loaded ${allTxs.length} transactions from sheet "${sheetData.name}" by ${currentUser.name}`);
+    } catch (e) {
+      console.error("Failed to load transactions", e);
+      alert('Failed to load transaction data. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -746,11 +897,6 @@ export const AnalyzerWebApp: React.FC = () => {
                    <button onClick={() => setIsAuditModalOpen(true)} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors"><FileText size={18} /></button>
                    <button onClick={handleExport} disabled={matches.length===0} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors"><Download size={18} /></button>
                 </div>
-                <div className="flex items-center bg-gray-100 rounded-md p-1 border border-gray-200">
-                   <Calendar className="w-4 h-4 ml-2 text-gray-500" />
-                   <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-transparent border-none text-sm focus:ring-0 text-gray-700 px-2 py-1 outline-none"/>
-                </div>
-                <button onClick={loadData} disabled={isLoading} className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm">{isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}{isLoading ? 'Loading...' : 'Import'}</button>
               </>
             )}
           </div>
@@ -772,6 +918,78 @@ export const AnalyzerWebApp: React.FC = () => {
         </div>
       ) : (
         <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
+          {/* File and Sheet Selection Panel */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-start justify-between gap-6">
+              {/* Left: File & Sheet Selectors */}
+              <div className="flex-1 space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Select Import File
+                  </label>
+                  <select
+                    value={selectedFileId}
+                    onChange={(e) => handleFileChange(e.target.value)}
+                    className="w-full bg-white border border-gray-300 rounded-lg text-sm px-4 py-2.5 text-gray-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                  >
+                    <option value="">-- Select a file --</option>
+                    {importedFiles.map(file => (
+                      <option key={file.id} value={file.id}>
+                        {file.filename} ({file.sheetCount} sheets, {file.totalTransactions} transactions)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                {availableSheets.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Select Sheet
+                    </label>
+                    <select
+                      value={selectedSheetId}
+                      onChange={(e) => handleSheetChange(e.target.value)}
+                      disabled={isLoading}
+                      className="w-full bg-white border border-gray-300 rounded-lg text-sm px-4 py-2.5 text-gray-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {availableSheets.map(sheet => (
+                        <option key={sheet.id} value={sheet.id}>
+                          {sheet.name} - {sheet.reportingDate} ({sheet.transactionCount} transactions)
+                        </option>
+                      ))}
+                    </select>
+                    
+                    {isLoading && (
+                      <div className="flex items-center gap-2 mt-2 text-sm text-indigo-600">
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Loading sheet data...</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              {/* Right: Sheet Metadata */}
+              {sheetMetadata && Object.keys(sheetMetadata).length > 0 && (
+                <div className="flex-1 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-lg p-4 border border-indigo-100">
+                  <h3 className="text-sm font-bold text-indigo-900 mb-3 flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    Sheet Metadata
+                  </h3>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    {Object.entries(sheetMetadata).map(([key, value]) => (
+                      <div key={key} className="text-xs">
+                        <span className="font-semibold text-gray-600">{key}:</span>
+                        <span className="ml-2 text-gray-900">{value || 'N/A'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-blue-50 rounded-full text-blue-600"><Activity size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Left Unmatched</p><p className="text-xl font-bold text-gray-800">{activeLeft.length}</p></div></div>
               <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-green-50 rounded-full text-green-600"><Activity size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Right Unmatched</p><p className="text-xl font-bold text-gray-800">{activeRight.length}</p></div></div>
