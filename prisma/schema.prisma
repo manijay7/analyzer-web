@@ -65,6 +65,9 @@ model Transaction {
   side        String            // LEFT, RIGHT
   status      String            @default("UNMATCHED") // UNMATCHED, MATCHED, DISPUTED, ARCHIVED
   
+  // Transaction type from RECON column
+  type        String?           // int cr, int dr, ext cr, ext dr
+  
   // Relationships
   matchId     String?
   match       MatchGroup? @relation(fields: [matchId], references: [id])
@@ -74,6 +77,9 @@ model Transaction {
   
   fileImportId String?
   fileImport   FileImport? @relation(fields: [fileImportId], references: [id])
+  
+  sheetImportId String?
+  sheetImport   SheetImport? @relation(fields: [sheetImportId], references: [id])
   
   // Soft delete and archival
   isDeleted    Boolean  @default(false)
@@ -91,6 +97,7 @@ model Transaction {
   @@index([status])
   @@index([contentHash])
   @@index([fileImportId])
+  @@index([sheetImportId])
 }
 
 // ============================================
@@ -301,12 +308,17 @@ model FileImport {
   rejectedCount     Int              @default(0)
   errorDetails      String?          // JSON array of errors
   
+  // Multi-sheet support
+  sheetCount        Int              @default(0)
+  validSheetCount   Int              @default(0)
+  
   // User tracking
   uploadedById String
   uploadedBy   User   @relation(fields: [uploadedById], references: [id])
   
   // Relationships
   transactions Transaction[]
+  sheets       SheetImport[]
   
   // Timestamps
   uploadedAt  DateTime  @default(now())
@@ -315,4 +327,42 @@ model FileImport {
   @@index([status, uploadedAt])
   @@index([uploadedById])
   @@index([checksum])
+}
+
+// ============================================
+// SHEET IMPORT MANAGEMENT
+// ============================================
+
+model SheetImport {
+  id       String      @id @default(cuid())
+  name     String
+  
+  // File relationship
+  fileImportId String
+  fileImport   FileImport @relation(fields: [fileImportId], references: [id], onDelete: Cascade)
+  
+  // Sheet metadata (stored as JSON)
+  metadata String // { DEPT, BRANCH, REPORTING DATE, etc. }
+  
+  // Processing info
+  transactionCount Int
+  intCrCount       Int @default(0)
+  intDrCount       Int @default(0)
+  extCrCount       Int @default(0)
+  extDrCount       Int @default(0)
+  
+  // Date from sheet
+  reportingDate String?
+  
+  // Order in workbook
+  sheetOrder Int
+  
+  // Relationships
+  transactions Transaction[]
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  
+  @@index([fileImportId])
+  @@index([reportingDate])
 }

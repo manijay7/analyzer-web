@@ -10,6 +10,7 @@ import { AuditLogModal } from './AuditLogModal';
 import { AdminDashboard } from './AdminDashboard';
 import { SnapshotHistoryModal } from './SnapshotHistoryModal';
 import { WRITE_OFF_LIMIT, DATE_WARNING_THRESHOLD_DAYS, DEFAULT_ROLE_PERMISSIONS, STORAGE_KEY, APP_NAME, ROLE_ADJUSTMENT_LIMITS, IDLE_TIMEOUT_MS } from '@/lib/constants';
+import { TransactionImportWorkspace } from './TransactionImportWorkspace';
 import { 
   Scale, RefreshCw, Upload, Calendar, Link2, AlertTriangle, ArrowRightLeft, 
   TrendingUp, DollarSign, Activity, X, RotateCcw, RotateCw,
@@ -20,7 +21,7 @@ import {
 // Undo Stack Limit
 const MAX_UNDO_STACK = 20;
 
-type ViewMode = 'workspace' | 'admin';
+type ViewMode = 'workspace' | 'admin' | 'import';
 
 // Simple Schema Validation Helper
 const validateTransaction = (tx: Transaction): boolean => {
@@ -702,6 +703,7 @@ export const AnalyzerWebApp: React.FC = () => {
             {canAccessAdmin && (
               <div className="flex bg-gray-100 rounded-lg p-1 gap-1">
                 <button onClick={() => setCurrentView('workspace')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${currentView === 'workspace' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Workspace</button>
+                <button onClick={() => setCurrentView('import')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${currentView === 'import' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><Upload size={14} />Import</button>
                 <button onClick={() => setCurrentView('admin')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${currentView === 'admin' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><LayoutDashboard size={14} />Admin</button>
               </div>
             )}
@@ -764,6 +766,10 @@ export const AnalyzerWebApp: React.FC = () => {
           lockedDate={lockedDate} onSetLockedDate={handleSetLockedDate}
           roleRequests={roleRequests} onApproveRoleRequest={handleApproveRoleRequest}
         />
+      ) : currentView === 'import' ? (
+        <div className="flex-1 h-[calc(100vh-4rem)] overflow-hidden">
+          <TransactionImportWorkspace />
+        </div>
       ) : (
         <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
