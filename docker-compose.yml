@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # Next.js Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - DATABASE_URL=file:./dev.db
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=analyzer-web-dev-secret-key-123
+      - NODE_ENV=development
+    command: npm run dev
+    depends_on:
+      - redis
+    networks:
+      - analyzer-network
+
+  # Redis for caching and session storage (Phase 2+)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - analyzer-network
+    command: redis-server --appendonly yes
+
+networks:
+  analyzer-network:
+    driver: bridge
+
+volumes:
+  redis-data:

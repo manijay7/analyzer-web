@@ -1,0 +1,318 @@
+// Analyzer Web - Comprehensive Database Schema
+// Generated based on full-stack development plan
+// Note: Using String for enums as SQLite doesn't support native enum types
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  name      String
+  password  String
+  role      String     @default("ANALYST") // ADMIN, MANAGER, ANALYST, AUDITOR
+  status    String     @default("active") // active, inactive, locked
+  avatar    String?
+  
+  // MFA Support
+  mfaEnabled Boolean  @default(false)
+  mfaSecret  String?
+  
+  // Security tracking
+  lastLogin          DateTime?
+  failedLoginAttempts Int       @default(0)
+  lockedUntil        DateTime?
+  passwordChangedAt  DateTime  @default(now())
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  importedTransactions Transaction[]     @relation("ImportedBy")
+  createdMatches      MatchGroup[]      @relation("CreatedBy")
+  approvedMatches     MatchGroup[]      @relation("ApprovedBy")
+  auditLogs          AuditLog[]
+  roleRequests       RoleRequest[]
+  deviceSessions     DeviceSession[]
+  snapshots          SystemSnapshot[]
+  fileImports        FileImport[]
+  
+  @@index([email])
+  @@index([role])
+}
+
+// ============================================
+// TRANSACTION MANAGEMENT
+// ============================================
+
+model Transaction {
+  id          String            @id @default(cuid())
+  date        String            // YYYY-MM-DD format
+  description String
+  amount      Float
+  reference   String
+  side        String            // LEFT, RIGHT
+  status      String            @default("UNMATCHED") // UNMATCHED, MATCHED, DISPUTED, ARCHIVED
+  
+  // Relationships
+  matchId     String?
+  match       MatchGroup? @relation(fields: [matchId], references: [id])
+  
+  importedById String?
+  importedBy   User?   @relation("ImportedBy", fields: [importedById], references: [id])
+  
+  fileImportId String?
+  fileImport   FileImport? @relation(fields: [fileImportId], references: [id])
+  
+  // Soft delete and archival
+  isDeleted    Boolean  @default(false)
+  archivedAt   DateTime?
+  
+  // Hash for deduplication
+  contentHash String?
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([date, side, status])
+  @@index([matchId])
+  @@index([status])
+  @@index([contentHash])
+  @@index([fileImportId])
+}
+
+// ============================================
+// MATCHING & RECONCILIATION
+// ============================================
+
+model MatchGroup {
+  id        String      @id @default(cuid())
+  timestamp DateTime    @default(now())
+  
+  // Transaction relationships
+  transactions Transaction[]
+  
+  // Stored as JSON arrays for flexibility
+  leftTransactionIds  String // JSON array of IDs
+  rightTransactionIds String // JSON array of IDs
+  
+  // Calculated totals
+  totalLeft  Float
+  totalRight Float
+  difference Float
+  adjustment Float?
+  
+  // Metadata
+  comment String?
+  status  String @default("PENDING_APPROVAL") // APPROVED, PENDING_APPROVAL, REJECTED
+  
+  // User tracking
+  matchByUserId String?
+  matchByUser   User?    @relation("CreatedBy", fields: [matchByUserId], references: [id])
+  
+  approvedById String?
+  approvedBy   User?    @relation("ApprovedBy", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+  
+  // Version control for optimistic locking
+  version Int @default(1)
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([status, timestamp])
+  @@index([matchByUserId])
+  @@index([approvedById])
+}
+
+// ============================================
+// AUDIT & COMPLIANCE
+// ============================================
+
+model AuditLog {
+  id String @id @default(cuid())
+  
+  // Timestamp with high precision
+  timestamp DateTime @default(now())
+  
+  // User and session tracking
+  userId    String
+  user      User   @relation(fields: [userId], references: [id])
+  sessionId String?
+  
+  // Network information
+  ipAddress        String?
+  deviceFingerprint String?
+  geolocation      String?
+  
+  // Action details
+  actionType     String // CREATE, UPDATE, DELETE, APPROVE, IMPORT, EXPORT, LOGIN, LOGOUT, MATCH, UNMATCH
+  entityType     String // TRANSACTION, MATCH, USER, ROLE, PERIOD, SNAPSHOT, FILE_IMPORT
+  entityId       String?
+  
+  // Change tracking (JSON)
+  beforeState    String? // JSON
+  afterState     String? // JSON
+  changeSummary  String
+  justification  String?
+  
+  // Chain verification for tamper detection
+  previousHash String?
+  currentHash  String?
+  
+  @@index([timestamp, userId, actionType])
+  @@index([entityType, entityId])
+  @@index([userId])
+}
+
+// ============================================
+// VERSIONING & SNAPSHOTS
+// ============================================
+
+model SystemSnapshot {
+  id        String       @id @default(cuid())
+  timestamp DateTime     @default(now())
+  label     String
+  type      String       // IMPORT, MANUAL, AUTO
+  
+  // Snapshot data (stored as JSON)
+  transactions String // JSON array of transactions
+  matches      String // JSON array of matches
+  
+  // Context
+  selectedDate String
+  
+  // Statistics (stored as JSON)
+  stats String // { totalTransactions, totalMatches, matchedValue }
+  
+  // User tracking
+  createdByUserId String
+  createdBy       User   @relation(fields: [createdByUserId], references: [id])
+  
+  @@index([timestamp])
+  @@index([createdByUserId])
+}
+
+// ============================================
+// ROLE & PERMISSION MANAGEMENT
+// ============================================
+
+model RoleRequest {
+  id        String            @id @default(cuid())
+  timestamp DateTime          @default(now())
+  
+  userId        String
+  user          User              @relation(fields: [userId], references: [id])
+  requestedRole String            // ADMIN, MANAGER, ANALYST, AUDITOR
+  reason        String
+  status        String            @default("PENDING") // PENDING, APPROVED, REJECTED
+  
+  // Response tracking
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNotes  String?
+  
+  @@index([status, timestamp])
+  @@index([userId])
+}
+
+// ============================================
+// SESSION MANAGEMENT
+// ============================================
+
+model DeviceSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  
+  // Device information
+  device   String
+  ip       String
+  location String?
+  
+  // Session tracking
+  lastActive DateTime @default(now())
+  isCurrent  Boolean  @default(false)
+  
+  // Session token (hashed)
+  token      String   @unique
+  expiresAt  DateTime
+  
+  createdAt DateTime @default(now())
+  
+  @@index([userId, lastActive])
+  @@index([token])
+}
+
+// ============================================
+// FINANCIAL PERIOD MANAGEMENT
+// ============================================
+
+model FinancialPeriod {
+  id        String   @id @default(cuid())
+  name      String   @unique // e.g., "Q1 2024"
+  startDate String   // YYYY-MM-DD
+  endDate   String   // YYYY-MM-DD
+  isClosed  Boolean  @default(false)
+  closedAt  DateTime?
+  closedBy  String?  // User ID
+  
+  // Notes and metadata
+  notes String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([startDate, endDate])
+  @@index([isClosed])
+}
+
+// ============================================
+// FILE IMPORT MANAGEMENT
+// ============================================
+
+model FileImport {
+  id       String            @id @default(cuid())
+  filename String
+  mimeType String
+  fileSize Int
+  
+  // Storage reference
+  storagePath String?
+  checksum    String // SHA-256 hash
+  
+  // Processing status
+  status            String @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  processedCount    Int              @default(0)
+  acceptedCount     Int              @default(0)
+  rejectedCount     Int              @default(0)
+  errorDetails      String?          // JSON array of errors
+  
+  // User tracking
+  uploadedById String
+  uploadedBy   User   @relation(fields: [uploadedById], references: [id])
+  
+  // Relationships
+  transactions Transaction[]
+  
+  // Timestamps
+  uploadedAt  DateTime  @default(now())
+  processedAt DateTime?
+  
+  @@index([status, uploadedAt])
+  @@index([uploadedById])
+  @@index([checksum])
+}

@@ -1,0 +1,5 @@
+{
+  "name": "Analyzer web",
+  "description": "A professional manual transaction matching and reconciliation system. Select dates to load transaction sets, match one-to-one, one-to-many, or many-to-many transactions across ledgers.",
+  "requestFramePermissions": []
+}
