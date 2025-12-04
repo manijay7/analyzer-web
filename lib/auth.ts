@@ -10,11 +10,22 @@ import { userService } from "@/services/UserService";
 import { auditService } from "@/services/AuditService";
 import crypto from "crypto";
 
-// Simple in-memory store for rate limiting (Note: In serverless, this resets, use Redis for prod)
+// In-memory login attempts tracking
+// WARNING: This implementation resets on server restart and doesn't work across multiple instances
+// For production multi-instance deployments, replace with Redis or database-backed storage
 const loginAttempts: Record<string, { count: number, lockUntil: number }> = {};
 
+// Validate required environment variables
+if (!process.env.NEXTAUTH_SECRET) {
+  throw new Error(
+    'NEXTAUTH_SECRET environment variable is not set. ' +
+    'This is required for production deployment. ' +
+    'Generate a secure secret with: openssl rand -base64 32'
+  );
+}
+
 export const authOptions: NextAuthOptions = {
-  secret: process.env.NEXTAUTH_SECRET || "analyzer-web-dev-secret-key-123",
+  secret: process.env.NEXTAUTH_SECRET,
   session: {
     strategy: "jwt",
     maxAge: 24 * 60 * 60, // 24 hours
@@ -114,8 +125,8 @@ export const authOptions: NextAuthOptions = {
             await prisma.deviceSession.create({
               data: {
                 userId: user.id,
-                device: 'Browser', // Will be enhanced with user agent parsing
-                ip: 'Unknown', // Will be added via middleware
+                device: 'Web Browser', // Note: Enhanced device fingerprinting requires middleware context
+                ip: 'API Context', // Note: IP address requires request context from API route
                 token: sessionToken,
                 expiresAt,
                 isCurrent: true,

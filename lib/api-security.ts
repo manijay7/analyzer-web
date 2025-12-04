@@ -171,23 +171,68 @@ export function getRolePermissions(userRole: UserRole): Permission[] {
 }
 
 /**
- * Validate CSRF token (placeholder for Phase 2 implementation)
+ * CSRF Protection Note:
+ * NextAuth automatically handles CSRF protection for authentication routes.
+ * For additional API routes, consider implementing CSRF tokens if needed.
+ * 
+ * Current Implementation: Relies on NextAuth's built-in CSRF protection
+ * Future Enhancement: Add custom CSRF middleware if required for non-auth routes
  */
-export function validateCsrfToken(token: string | null): boolean {
-  // TODO: Implement CSRF validation in Phase 2
-  // For now, return true to not block requests
-  return true;
-}
+
+// Simple in-memory rate limiting (single-instance deployment only)
+// For multi-instance deployments, replace with Redis-backed implementation
+const rateLimitStore: Record<string, { count: number; resetTime: number }> = {};
 
 /**
- * Rate limiting check (placeholder for Phase 2 with Redis)
+ * Basic rate limiting implementation
+ * 
+ * WARNING: This is an in-memory implementation suitable for single-instance deployments only.
+ * For production deployments with multiple instances, replace with Redis or equivalent.
+ * 
+ * @param identifier - Unique identifier (e.g., user ID, IP address)
+ * @param limit - Maximum number of requests allowed in window
+ * @param windowMs - Time window in milliseconds
+ * @returns Object indicating if request is allowed and remaining quota
  */
 export async function checkRateLimit(
   identifier: string,
   limit: number = 100,
   windowMs: number = 60000
 ): Promise<{ allowed: boolean; remaining: number }> {
-  // TODO: Implement Redis-based rate limiting in Phase 2
-  // For now, allow all requests
-  return { allowed: true, remaining: limit };
+  const now = Date.now();
+  const key = `ratelimit:${identifier}`;
+  
+  // Get or initialize rate limit record
+  let record = rateLimitStore[key];
+  
+  // Reset if window has expired
+  if (!record || now > record.resetTime) {
+    record = {
+      count: 0,
+      resetTime: now + windowMs
+    };
+    rateLimitStore[key] = record;
+  }
+  
+  // Increment counter
+  record.count++;
+  
+  // Check if limit exceeded
+  const allowed = record.count <= limit;
+  const remaining = Math.max(0, limit - record.count);
+  
+  return { allowed, remaining };
+}
+
+/**
+ * Clean up expired rate limit records (should be called periodically)
+ * Call this from a cron job or scheduled task
+ */
+export function cleanupExpiredRateLimits(): void {
+  const now = Date.now();
+  Object.keys(rateLimitStore).forEach(key => {
+    if (rateLimitStore[key].resetTime < now) {
+      delete rateLimitStore[key];
+    }
+  });
 }

@@ -7,10 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "init-admin": "ts-node -P tsconfig.scripts.json prisma/init-admin.ts",
+    "reset-password": "ts-node -P tsconfig.scripts.json prisma/reset-password.ts",
+    "check-users": "ts-node -P tsconfig.scripts.json prisma/check-users.ts"
   },
   "prisma": {
-    "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
+    "seed": "ts-node -P tsconfig.scripts.json prisma/seeds/seed.ts"
   },
   "dependencies": {
     "next": "14.1.0",

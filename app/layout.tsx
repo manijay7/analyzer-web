@@ -3,6 +3,14 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import { enforceEnvironmentValidation } from "@/lib/env-validation";
+
+// Validate environment configuration at application startup
+// This will throw an error and prevent the app from starting if misconfigured
+if (typeof window === 'undefined') {
+  // Only run on server-side during build/start
+  enforceEnvironmentValidation();
+}
 
 const inter = Inter({ subsets: ["latin"], variable: '--font-inter' });
 
