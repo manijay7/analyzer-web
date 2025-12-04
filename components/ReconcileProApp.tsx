@@ -414,15 +414,22 @@ export const AnalyzerWebApp: React.FC = () => {
     setSelectedSheetId('');
     setAvailableSheets([]);
     
-    if (!fileId) return;
+    // If no file selected, clear transactions and metadata
+    if (!fileId) {
+      setTransactions([]);
+      setSelectedLeftIds(new Set());
+      setSelectedRightIds(new Set());
+      setSelectedHistoryIds(new Set());
+      setMatches([]);
+      setMatchComment("");
+      setSheetMetadata(null);
+      return;
+    }
     
     const selectedFile = importedFiles.find(f => f.id === fileId);
     if (selectedFile && selectedFile.sheets) {
       setAvailableSheets(selectedFile.sheets);
-      // Auto-select first sheet if available
-      if (selectedFile.sheets.length > 0) {
-        setSelectedSheetId(selectedFile.sheets[0].id);
-      }
+      // Note: No auto-select, user must manually choose a sheet
     }
   }, [importedFiles]);
   
@@ -430,7 +437,17 @@ export const AnalyzerWebApp: React.FC = () => {
   const handleSheetChange = useCallback(async (sheetId: string) => {
     setSelectedSheetId(sheetId);
     
-    if (!sheetId) return;
+    // If no sheet selected, clear transactions and metadata
+    if (!sheetId) {
+      setTransactions([]);
+      setSelectedLeftIds(new Set());
+      setSelectedRightIds(new Set());
+      setSelectedHistoryIds(new Set());
+      setMatches([]);
+      setMatchComment("");
+      setSheetMetadata(null);
+      return;
+    }
     
     // Auto-load data for selected sheet
     if (selectedDate && isPeriodLocked(selectedDate)) {
@@ -524,14 +541,11 @@ export const AnalyzerWebApp: React.FC = () => {
     const totalLeft = leftTxs.reduce((sum, t) => sum + t.amount, 0);
     const totalRight = rightTxs.reduce((sum, t) => sum + t.amount, 0);
     const diff = Math.abs(totalLeft - totalRight);
-    const adjustment = diff > 0 ? diff : undefined;
     
-    // Dynamic Approval Limit Logic
-    let status: MatchStatus = 'APPROVED';
-    const userLimit = ROLE_ADJUSTMENT_LIMITS[currentUser.role];
-    
-    if (adjustment && adjustment > userLimit) {
-        status = 'PENDING_APPROVAL';
+    // Strict matching: only allow exact matches (zero difference)
+    if (diff !== 0) {
+        alert(`Cannot match: Difference must be exactly zero. Current difference: ${diff.toFixed(2)}`);
+        return;
     }
 
     const newMatch: MatchGroup = {
@@ -541,11 +555,11 @@ export const AnalyzerWebApp: React.FC = () => {
       rightTransactions: rightTxs,
       totalLeft,
       totalRight,
-      difference: diff,
-      adjustment: adjustment,
+      difference: 0,
+      adjustment: undefined,
       comment: matchComment.trim() || undefined,
       matchByUserId: currentUser.id,
-      status: status
+      status: 'APPROVED'
     };
 
     setMatches(prev => [...prev, newMatch]);
@@ -952,6 +966,7 @@ export const AnalyzerWebApp: React.FC = () => {
                       disabled={isLoading}
                       className="w-full bg-white border border-gray-300 rounded-lg text-sm px-4 py-2.5 text-gray-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                     >
+                      <option value="">-- Select a sheet --</option>
                       {availableSheets.map(sheet => (
                         <option key={sheet.id} value={sheet.id}>
                           {sheet.name} - {sheet.reportingDate} ({sheet.transactionCount} transactions)

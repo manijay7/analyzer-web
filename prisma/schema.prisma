@@ -58,15 +58,21 @@ model User {
 
 model Transaction {
   id          String            @id @default(cuid())
-  date        String            // YYYY-MM-DD format
-  description String
-  amount      Float
-  reference   String
-  side        String            // LEFT, RIGHT
-  status      String            @default("UNMATCHED") // UNMATCHED, MATCHED, DISPUTED, ARCHIVED
   
-  // Transaction type from RECON column
-  type        String?           // int cr, int dr, ext cr, ext dr
+  // Excel columns (all 7 columns from import)
+  sn          String?           // Serial Number (column 1)
+  date        String            // DATE (column 2) - YYYY-MM-DD format
+  description String            // DESCRIPTION (column 3)
+  amount      Float             // AMOUNT (column 4)
+  glRefNo     String?           // GL Ref No. (column 5)
+  aging       Int?              // AGING(DAYS) (column 6)
+  recon       String?           // RECON (column 7) - INT CR, INT DR, EXT CR, EXT DR
+  
+  // Legacy fields for compatibility
+  reference   String            // Maps to glRefNo or fallback
+  side        String            // LEFT, RIGHT (derived from RECON)
+  status      String            @default("UNMATCHED") // UNMATCHED, MATCHED, DISPUTED, ARCHIVED
+  type        String?           // int cr, int dr, ext cr, ext dr (lowercase version of recon)
   
   // Relationships
   matchId     String?

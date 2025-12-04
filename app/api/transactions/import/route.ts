@@ -12,9 +12,13 @@ export const dynamic = "force-dynamic";
 
 // Type definitions for imported transaction data
 interface ImportedTransaction {
+  sn?: string;
   date: string;
   description: string;
   amount: number;
+  glRefNo?: string;
+  aging?: number;
+  recon?: string;
   reference: string;
   type: "int cr" | "int dr" | "ext dr" | "ext cr";
   [key: string]: any;
@@ -212,18 +216,25 @@ function parseSheetData(jsonData: any[][], sheetName: string) {
       continue;
     }
 
-    // Parse amount
+    // Parse amount and aging
     const amountStr = row[colIndices.AMOUNT] || "0";
     const amount = Math.abs(
       parseFloat(amountStr.replace(/[^0-9.-]/g, "")) || 0
     );
 
+    const agingStr = row[colIndices.AGING] || "";
+    const aging = agingStr ? parseInt(agingStr, 10) : undefined;
+
     if (amount === 0) continue;
 
     const transaction: ImportedTransaction = {
+      sn: row[colIndices.SN] || `SN-${i}`,
       date: row[colIndices.DATE] || new Date().toISOString().split("T")[0],
       description: description || "Transaction",
       amount: amount,
+      glRefNo: row[colIndices.GLRefNo] || row[colIndices.SN] || `REF-${i}`,
+      aging: aging,
+      recon: recon,
       reference: row[colIndices.GLRefNo] || row[colIndices.SN] || `REF-${i}`,
       type: recon.toLowerCase() as "int cr" | "int dr" | "ext dr" | "ext cr",
     };
@@ -500,9 +511,13 @@ export async function POST(request: NextRequest) {
       if (allTransactions.length > 0) {
         await prisma.transaction.createMany({
           data: allTransactions.map((t) => ({
+            sn: t.sn,
             date: t.date,
             description: t.description,
             amount: t.amount,
+            glRefNo: t.glRefNo,
+            aging: t.aging,
+            recon: t.recon,
             reference: t.reference,
             side: t.side,
             type: t.type,

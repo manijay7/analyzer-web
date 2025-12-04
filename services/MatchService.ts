@@ -1,6 +1,6 @@
 // Match Service - Handles matching and reconciliation operations
-import { BaseService } from './BaseService';
-import { Prisma } from '@prisma/client';
+import { BaseService } from "./BaseService";
+import { Prisma } from "@prisma/client";
 
 // Type definitions
 type MatchGroup = Prisma.MatchGroupGetPayload<{}>;
@@ -25,78 +25,80 @@ export class MatchService extends BaseService {
           ...input.leftTransactionIds,
           ...input.rightTransactionIds,
         ];
-        
+
         const transactions = await this.prisma.transaction.findMany({
           where: {
             id: { in: allTransactionIds },
           },
         });
-        
-        const leftTxs = transactions.filter(t =>
+
+        const leftTxs = transactions.filter((t) =>
           input.leftTransactionIds.includes(t.id)
         );
-        const rightTxs = transactions.filter(t =>
+        const rightTxs = transactions.filter((t) =>
           input.rightTransactionIds.includes(t.id)
         );
-        
+
         const totalLeft = leftTxs.reduce((sum, t) => sum + t.amount, 0);
         const totalRight = rightTxs.reduce((sum, t) => sum + t.amount, 0);
         const difference = Math.abs(totalLeft - totalRight);
-        const adjustment = difference > 0 ? difference : undefined;
-        
-        // Determine status based on adjustment amount
-        const status =
-          adjustment && adjustment > input.adjustmentLimit
-            ? 'PENDING_APPROVAL'
-            : 'APPROVED';
-        
-        // Create match group
+
+        // Strict matching: only allow exact matches (zero difference)
+        if (difference !== 0) {
+          throw new Error(
+            `Cannot match: Difference must be exactly zero. Current difference: ${difference.toFixed(
+              2
+            )}`
+          );
+        }
+
+        // Create match group with zero difference and no adjustment
         const matchGroup = await this.prisma.matchGroup.create({
           data: {
             leftTransactionIds: JSON.stringify(input.leftTransactionIds),
             rightTransactionIds: JSON.stringify(input.rightTransactionIds),
             totalLeft,
             totalRight,
-            difference,
-            adjustment,
+            difference: 0,
+            adjustment: undefined,
             comment: input.comment,
-            status,
+            status: "APPROVED",
             matchByUserId: input.matchByUserId,
           },
         });
-        
+
         // Update transaction statuses
         await this.prisma.transaction.updateMany({
           where: {
             id: { in: allTransactionIds },
           },
           data: {
-            status: 'MATCHED',
+            status: "MATCHED",
             matchId: matchGroup.id,
           },
         });
-        
+
         return matchGroup;
       });
     } catch (error) {
-      this.handleError(error, 'MatchService.createMatch');
+      this.handleError(error, "MatchService.createMatch");
     }
   }
-  
+
   /**
    * Get all matches
    */
   async getMatches(filter: { status?: string } = {}): Promise<MatchGroup[]> {
     try {
       const where: any = {};
-      
+
       if (filter.status) {
         where.status = filter.status;
       }
-      
+
       return await this.prisma.matchGroup.findMany({
         where,
-        orderBy: { timestamp: 'desc' },
+        orderBy: { timestamp: "desc" },
         include: {
           matchByUser: {
             select: {
@@ -114,10 +116,10 @@ export class MatchService extends BaseService {
         },
       });
     } catch (error) {
-      this.handleError(error, 'MatchService.getMatches');
+      this.handleError(error, "MatchService.getMatches");
     }
   }
-  
+
   /**
    * Approve a match
    */
@@ -129,17 +131,17 @@ export class MatchService extends BaseService {
       return await this.prisma.matchGroup.update({
         where: { id: matchId },
         data: {
-          status: 'APPROVED',
+          status: "APPROVED",
           approvedById,
           approvedAt: new Date(),
           version: { increment: 1 },
         },
       });
     } catch (error) {
-      this.handleError(error, 'MatchService.approveMatch');
+      this.handleError(error, "MatchService.approveMatch");
     }
   }
-  
+
   /**
    * Unmatch (delete) a match group
    */
@@ -150,18 +152,18 @@ export class MatchService extends BaseService {
         await this.prisma.transaction.updateMany({
           where: { matchId },
           data: {
-            status: 'UNMATCHED',
+            status: "UNMATCHED",
             matchId: null,
           },
         });
-        
+
         // Delete the match group
         await this.prisma.matchGroup.delete({
           where: { id: matchId },
         });
       });
     } catch (error) {
-      this.handleError(error, 'MatchService.unmatch');
+      this.handleError(error, "MatchService.unmatch");
     }
   }
 }
