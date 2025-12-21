@@ -105,3 +105,10 @@ dist
 # Gatsby files
 .cache/
 # Comment in the public line in if your project uses Gatsby
+
+# Database files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+prisma/*.db

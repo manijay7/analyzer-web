@@ -3,7 +3,7 @@
 import React from 'react';
 import { X, ArrowRightLeft, MessageCircle, Link2, CheckCircle, ShieldAlert } from 'lucide-react';
 import { Transaction, User } from '@/lib/types';
-import { WRITE_OFF_LIMIT, ROLE_ADJUSTMENT_LIMITS, UserRole } from '@/lib/constants';
+import { WRITE_OFF_LIMIT, ROLE_ADJUSTMENT_LIMITS } from '@/lib/constants';
 
 interface MatchControlsProps {
   selectedLeftTxs: Transaction[];
