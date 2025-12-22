@@ -83,7 +83,7 @@ export default function LoginPage() {
           <div className="space-y-8 max-w-lg">
             <div>
               <h2 className="text-4xl font-bold mb-4 leading-tight">
-                Enterprise Reconciliation Platform
+                Enterprise Analytics Platform
               </h2>
               <p className="text-lg text-white/90 leading-relaxed">
                 Streamline your reconciliation process with powerful analytics and manual matching.
