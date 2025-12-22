@@ -10,7 +10,8 @@
     "postinstall": "prisma generate",
     "init-admin": "ts-node -P tsconfig.scripts.json prisma/init-admin.ts",
     "reset-password": "ts-node -P tsconfig.scripts.json prisma/reset-password.ts",
-    "check-users": "ts-node -P tsconfig.scripts.json prisma/check-users.ts"
+    "check-users": "ts-node -P tsconfig.scripts.json prisma/check-users.ts",
+    "diagnose": "ts-node -P tsconfig.scripts.json prisma/diagnose-production.ts"
   },
   "prisma": {
     "seed": "ts-node -P tsconfig.scripts.json prisma/seeds/seed.ts"
