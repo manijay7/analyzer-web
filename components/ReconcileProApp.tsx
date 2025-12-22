@@ -139,6 +139,23 @@ export const AnalyzerWebApp: React.FC = () => {
 
   // --- Persistence & Initialization ---
 
+  // Function to fetch imported files from database
+  const fetchImportedFiles = useCallback(async () => {
+    try {
+      const response = await fetch('/api/transactions/sheets');
+      if (!response.ok) {
+        throw new Error('Failed to fetch imported files');
+      }
+      const result = await response.json();
+      if (result.success && Array.isArray(result.data)) {
+        setImportedFiles(result.data);
+        console.log(`[ReconcileProApp] Refreshed imported files: ${result.data.length} files found`);
+      }
+    } catch (err) {
+      console.log("Could not fetch imported files:", err);
+    }
+  }, []);
+
   useEffect(() => {
     // Set initial date on client only to avoid hydration mismatch
     setSelectedDate(new Date().toISOString().split('T')[0]);
@@ -185,23 +202,18 @@ export const AnalyzerWebApp: React.FC = () => {
             });
         
         // Fetch imported files for selection
-        fetch('/api/transactions/sheets')
-            .then(res => {
-                if (res.ok) return res.json();
-                throw new Error('Failed to fetch imported files');
-            })
-            .then(result => {
-                if (result.success && Array.isArray(result.data)) {
-                    setImportedFiles(result.data);
-                }
-            })
-            .catch(err => {
-                console.log("Could not fetch imported files:", err);
-            });
+        fetchImportedFiles();
     }
 
     setIsInitialized(true);
-  }, [status]);
+  }, [status, fetchImportedFiles]);
+
+  // Refresh imported files when switching back to workspace view
+  useEffect(() => {
+    if (currentView === 'workspace' && isAuthenticated) {
+      fetchImportedFiles();
+    }
+  }, [currentView, isAuthenticated, fetchImportedFiles]);
 
   // Save to local storage on change
   useEffect(() => {

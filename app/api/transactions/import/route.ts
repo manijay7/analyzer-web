@@ -303,27 +303,28 @@ function parseExcelFile(buffer: Buffer, fileName: string): TransactionSet[] {
         transactions.extDr.length +
         transactions.extCr.length;
 
-      if (totalTransactions > 0) {
-        transactionSets.push({
-          id: `set-${index + 1}-${Date.now()}`,
-          name: sheetName || `Transaction Set ${index + 1}`,
-          date:
-            metadata["REPORTING DATE"] ||
-            new Date().toISOString().split("T")[0],
-          totalTransactions,
-          glTransactions: {
-            intCr: transactions.intCr,
-            intDr: transactions.intDr,
-          },
-          statementTransactions: {
-            extDr: transactions.extDr,
-            extCr: transactions.extCr,
-          },
-          metadata, // Include extracted metadata
-        });
-      } else {
+      // Include all sheets regardless of transaction count
+      transactionSets.push({
+        id: `set-${index + 1}-${Date.now()}`,
+        name: sheetName || `Transaction Set ${index + 1}`,
+        date:
+          metadata["REPORTING DATE"] ||
+          new Date().toISOString().split("T")[0],
+        totalTransactions,
+        glTransactions: {
+          intCr: transactions.intCr,
+          intDr: transactions.intDr,
+        },
+        statementTransactions: {
+          extDr: transactions.extDr,
+          extCr: transactions.extCr,
+        },
+        metadata, // Include extracted metadata
+      });
+
+      if (totalTransactions === 0) {
         console.log(
-          `[Import] No valid transactions found in sheet "${sheetName}"`
+          `[Import] Sheet "${sheetName}" has no transactions but will be imported`
         );
       }
     });
@@ -417,7 +418,7 @@ export async function POST(request: NextRequest) {
 
     if (transactionSets.length === 0) {
       return NextResponse.json(
-        { error: "No valid transactions found in the file" },
+        { error: 'No valid sheets found in the file. Ensure at least one sheet contains "dept" in cells A1:D10.' },
         { status: 400 }
       );
     }
@@ -529,6 +530,8 @@ export async function POST(request: NextRequest) {
         });
 
         console.log(`[Import]   Saved ${allTransactions.length} transactions`);
+      } else {
+        console.log(`[Import]   Sheet has no transactions to save`);
       }
     }
 
