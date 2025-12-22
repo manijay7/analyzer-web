@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Lock, Mail, Loader2, AlertCircle, BarChart3, TrendingUp, Shield } from 'lucide-react';
-import Image from 'next/image';
 import { APP_NAME } from '@/lib/constants';
 
 export default function LoginPage() {
@@ -71,12 +70,11 @@ export default function LoginPage() {
         <div className="relative z-10 flex flex-col justify-between p-12 text-white w-full">
           {/* Logo */}
           <div>
-            <Image
+            <img
               src="/logos/arbutus_logo-300x79.png"
               alt="Arbutus Logo"
               width={300}
               height={79}
-              priority
               className="brightness-0 invert"
             />
           </div>
@@ -136,12 +134,11 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
           <div className="lg:hidden mb-8 text-center">
-            <Image
+            <img
               src="/logos/arbutus_logo-300x79.png"
               alt="Arbutus Logo"
               width={200}
               height={53}
-              priority
               className="inline-block"
             />
           </div>
