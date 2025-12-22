@@ -28,8 +28,17 @@ export const MatchControls: React.FC<MatchControlsProps> = ({
   onCommentChange,
   onToggleComment,
 }) => {
-  const selLeftTotal = selectedLeftTxs.reduce((sum, t) => sum + t.amount, 0);
-  const selRightTotal = selectedRightTxs.reduce((sum, t) => sum + t.amount, 0);
+  // Helper function to get actual amount (negative for DR transactions)
+  const getActualAmount = (t: Transaction): number => {
+    const recon = t.recon?.toUpperCase() || '';
+    if (recon.includes('DR')) {
+      return -Math.abs(t.amount); // DR transactions are negative
+    }
+    return Math.abs(t.amount); // CR transactions are positive
+  };
+  
+  const selLeftTotal = selectedLeftTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
+  const selRightTotal = selectedRightTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
   const diff = Math.abs(selLeftTotal - selRightTotal);
 
   const hasSelection = selectedLeftTxs.length > 0 || selectedRightTxs.length > 0;

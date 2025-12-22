@@ -44,6 +44,7 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
   'GHS': 'GH₵',
 };
 
+
 // Extract currency code from GENERAL LEDGER NAME
 function extractCurrencyCode(metadata: Record<string, any> | null | undefined): string | null {
   if (!metadata) return null;
@@ -61,7 +62,6 @@ function extractCurrencyCode(metadata: Record<string, any> | null | undefined): 
   
   return null;
 }
-
 export const TransactionTable: React.FC<TransactionTableProps> = ({
   title,
   transactions,
@@ -73,6 +73,44 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
   onFilterChange,
   metadata
 }) => {
+  // Debug logging
+  React.useEffect(() => {
+    if (transactions.length > 0) {
+      console.log(`[TransactionTable] ${title} - Total transactions:`, transactions.length);
+      
+      // Log FULL first transaction to see all available fields
+      console.log(`[TransactionTable] ${title} - FULL first transaction:`, transactions[0]);
+      console.log(`[TransactionTable] ${title} - First transaction keys:`, Object.keys(transactions[0]));
+      
+      console.log(`[TransactionTable] ${title} - First 3 transactions (key fields):`, transactions.slice(0, 3).map(t => ({
+        id: t.id,
+        description: t.description.substring(0, 30),
+        amount: t.amount,
+        recon: t.recon,
+        type: t.type,
+        side: t.side,
+        glRefNo: t.glRefNo,
+        sn: t.sn,
+        aging: t.aging
+      })));
+      
+      // Log recon value distribution
+      const reconCounts = transactions.reduce((acc, t) => {
+        const recon = t.recon || 'NULL/UNDEFINED';
+        acc[recon] = (acc[recon] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      console.log(`[TransactionTable] ${title} - RECON distribution:`, reconCounts);
+      
+      // Check if type field exists and has values
+      const typeCounts = transactions.reduce((acc, t) => {
+        const type = t.type || 'NULL/UNDEFINED';
+        acc[type] = (acc[type] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      console.log(`[TransactionTable] ${title} - TYPE distribution:`, typeCounts);
+    }
+  }, [transactions, title]);
   // Column visibility and configuration (SN and Aging now visible by default)
   const [columns, setColumns] = useState<ColumnConfig[]>([
     { key: 'sn', label: 'SN', visible: true, sortable: true },
@@ -120,13 +158,27 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
     }).format(Math.abs(amount));
   };
 
-  // Get display amount (negative for DR transactions)
+  // Get display amount (ALWAYS negative for DR transactions)
   const getDisplayAmount = (tx: Transaction): number => {
-    const recon = tx.recon?.toUpperCase() || '';
-    if (recon.includes('DR')) {
-      return -Math.abs(tx.amount);
+    // Try recon first, then fall back to type field
+    const reconOrType = (tx.recon || tx.type || '').toUpperCase();
+    const originalAmount = tx.amount;
+    let displayAmount: number;
+    
+    // Any transaction with DR in the recon/type field should be negative
+    if (reconOrType.includes('DR')) {
+      displayAmount = -Math.abs(originalAmount); // Force negative
+    } else {
+      // CR transactions should always be positive
+      displayAmount = Math.abs(originalAmount);
     }
-    return tx.amount;
+    
+    // Log first few for debugging
+    if (Math.random() < 0.05) { // Log ~5% of transactions to avoid spam
+      console.log(`[getDisplayAmount] recon: "${tx.recon}", type: "${tx.type}", reconOrType: "${reconOrType}", original: ${originalAmount}, display: ${displayAmount}, isDR: ${reconOrType.includes('DR')}`);
+    }
+    
+    return displayAmount;
   };
 
   // Get value for column (used for sorting and filtering)
@@ -141,7 +193,8 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
       case 'reference':
         return tx.glRefNo || tx.reference || '';
       case 'drCr':
-        return tx.recon || '';
+        // Try recon first, then fall back to type
+        return tx.recon || tx.type || '';
       case 'sn':
         return tx.sn || '';
       case 'aging':
@@ -161,7 +214,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
       tx.description.toLowerCase().includes(search) ||
       getDisplayAmount(tx).toString().includes(search) ||
       (tx.glRefNo || tx.reference || '').toLowerCase().includes(search) ||
-      (tx.recon || '').toLowerCase().includes(search) ||
+      (tx.recon || tx.type || '').toLowerCase().includes(search) ||
       (tx.sn || '').toLowerCase().includes(search) ||
       (tx.aging?.toString() || '').includes(search)
     );
@@ -406,12 +459,24 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
                       }
                       
                       if (col.key === 'drCr') {
+                        // Format recon value for better display (DR or CR only)
+                        // Try recon first, then fall back to type field
+                        const reconOrType = (tx.recon || tx.type || '').toUpperCase();
+                        const isDr = reconOrType.includes('DR');
+                        const isCr = reconOrType.includes('CR');
+                        const displayValue = isDr ? 'DR' : isCr ? 'CR' : 'N/A';
+                        
+                        // Debug log for first few
+                        if (Math.random() < 0.05) {
+                          console.log(`[DR/CR Display] raw recon: "${tx.recon}", type: "${tx.type}", reconOrType: "${reconOrType}", isDR: ${isDr}, isCR: ${isCr}, display: "${displayValue}"`);
+                        }
+                        
                         return (
                           <td key={col.key} className="px-4 py-3 text-center">
                             <span className={`px-2 py-1 text-xs rounded font-medium ${
-                              tx.recon?.toUpperCase().includes('DR') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                              isDr ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
                             }`}>
-                              {tx.recon || 'N/A'}
+                              {displayValue}
                             </span>
                           </td>
                         );

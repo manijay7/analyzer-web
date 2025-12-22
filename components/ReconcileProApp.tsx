@@ -377,10 +377,16 @@ export const AnalyzerWebApp: React.FC = () => {
         date: imported.date,
         description: imported.description,
         amount: imported.amount,
-        reference: imported.reference,
+        reference: imported.reference || imported.glRefNo,
         side: side,
         status: TransactionStatus.Unmatched,
-        importedBy: currentUser.id
+        importedBy: currentUser.id,
+        // Include Excel fields for DR/CR detection
+        sn: imported.sn,
+        glRefNo: imported.glRefNo,
+        aging: imported.aging,
+        recon: imported.recon,
+        type: imported.type
       });
       
       // Convert GL transactions (Left side)
@@ -487,10 +493,16 @@ export const AnalyzerWebApp: React.FC = () => {
         date: imported.date,
         description: imported.description,
         amount: imported.amount,
-        reference: imported.reference,
+        reference: imported.reference || imported.glRefNo,
         side: side,
         status: TransactionStatus.Unmatched,
-        importedBy: currentUser.id
+        importedBy: currentUser.id,
+        // Include Excel fields for DR/CR detection
+        sn: imported.sn,
+        glRefNo: imported.glRefNo,
+        aging: imported.aging,
+        recon: imported.recon,
+        type: imported.type
       });
       
       // Convert GL transactions (Left side)
@@ -551,8 +563,17 @@ export const AnalyzerWebApp: React.FC = () => {
 
     saveCheckpoint();
 
-    const totalLeft = leftTxs.reduce((sum, t) => sum + t.amount, 0);
-    const totalRight = rightTxs.reduce((sum, t) => sum + t.amount, 0);
+    // Helper function to get actual amount (negative for DR transactions)
+    const getActualAmount = (t: Transaction): number => {
+      const recon = t.recon?.toUpperCase() || '';
+      if (recon.includes('DR')) {
+        return -Math.abs(t.amount); // DR transactions are negative
+      }
+      return Math.abs(t.amount); // CR transactions are positive
+    };
+
+    const totalLeft = leftTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
+    const totalRight = rightTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
     const diff = Math.abs(totalLeft - totalRight);
     
     // Strict matching: only allow exact matches (zero difference)
@@ -832,8 +853,18 @@ export const AnalyzerWebApp: React.FC = () => {
   
   const selectedLeftTxs = transactions.filter(t => selectedLeftIds.has(t.id));
   const selectedRightTxs = transactions.filter(t => selectedRightIds.has(t.id));
-  const selLeftTotal = selectedLeftTxs.reduce((sum, t) => sum + t.amount, 0);
-  const selRightTotal = selectedRightTxs.reduce((sum, t) => sum + t.amount, 0);
+  
+  // Helper function to get actual amount (negative for DR transactions)
+  const getActualAmount = (t: Transaction): number => {
+    const recon = t.recon?.toUpperCase() || '';
+    if (recon.includes('DR')) {
+      return -Math.abs(t.amount); // DR transactions are negative
+    }
+    return Math.abs(t.amount); // CR transactions are positive
+  };
+  
+  const selLeftTotal = selectedLeftTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
+  const selRightTotal = selectedRightTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
   const diff = Math.abs(selLeftTotal - selRightTotal);
   
   const canAccessAdmin = hasPermission(currentUser.role, 'view_admin_panel');
