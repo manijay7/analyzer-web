@@ -2,339 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { PrismaClient } from "@prisma/client";
-import * as XLSX from "xlsx";
-import crypto from "crypto";
+import { parseExcelFile, generateFileHash } from "@/lib/excel-import";
 
 const prisma = new PrismaClient();
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-// Type definitions for imported transaction data
-interface ImportedTransaction {
-  sn?: string;
-  date: string;
-  description: string;
-  amount: number;
-  glRefNo?: string;
-  aging?: number;
-  recon?: string;
-  reference: string;
-  type: "int cr" | "int dr" | "ext dr" | "ext cr";
-  [key: string]: any;
-}
-
-interface TransactionSet {
-  id: string;
-  name: string;
-  date: string;
-  totalTransactions: number;
-  glTransactions: {
-    intCr: ImportedTransaction[];
-    intDr: ImportedTransaction[];
-  };
-  statementTransactions: {
-    extDr: ImportedTransaction[];
-    extCr: ImportedTransaction[];
-  };
-  metadata?: Record<string, any>; // Sheet metadata (DEPT, BRANCH, etc.)
-}
-
-// Storage for tracking imported files (in-memory for now, move to database later)
-const importedFiles = new Map<
-  string,
-  { fileName: string; hash: string; uploadedAt: string }
->();
-
-// Check if sheet contains "dept" in cells A1:D10
-function isValidAccountSheet(worksheet: XLSX.WorkSheet): boolean {
-  const range = { s: { c: 0, r: 0 }, e: { c: 3, r: 9 } }; // A1:D10
-
-  for (let row = range.s.r; row <= range.e.r; row++) {
-    for (let col = range.s.c; col <= range.e.c; col++) {
-      const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
-      const cell = worksheet[cellAddress];
-
-      if (cell && cell.v) {
-        const cellValue = String(cell.v).toLowerCase();
-        if (cellValue.includes("dept")) {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
-}
-
-// Generate file hash for duplicate detection
-function generateFileHash(buffer: Buffer): string {
-  return crypto.createHash("sha256").update(buffer).digest("hex");
-}
-
-// Extract metadata from sheet data
-function extractMetadata(jsonData: any[][]): Record<string, any> {
-  const metadata: Record<string, any> = {};
-  const metadataFields = [
-    "DEPT",
-    "BRANCH",
-    "REPORTING DATE",
-    "REPORTING UNIT",
-    "BANK ACCOUNT NUMBER",
-    "GENERAL LEDGER NAME",
-    "GENERAL LEDGER NUMBER",
-    "BALANCE PER BANK STATEMENT",
-    "GRAND TOTAL",
-    "INTERNAL ACCOUNT BALANCE AS AT",
-    "DIFFERENCE",
-    "PREPARED BY:",
-    "REVIEWED BY:",
-  ];
-
-  for (let i = 0; i < jsonData.length; i++) {
-    const row =
-      jsonData[i]?.map((cell) => (cell || "").toString().trim()) || [];
-
-    // Stop if we hit the transaction table
-    if (
-      row.includes("SN") &&
-      row.includes("DATE") &&
-      row.includes("DESCRIPTION")
-    ) {
-      break;
-    }
-
-    // Extract metadata fields
-    metadataFields.forEach((field) => {
-      const fieldIndex = row.indexOf(field);
-      if (fieldIndex !== -1) {
-        // Look for value in next 3 columns
-        for (let j = 1; j <= 3 && fieldIndex + j < row.length; j++) {
-          if (row[fieldIndex + j]) {
-            metadata[field] = row[fieldIndex + j];
-            break;
-          }
-        }
-      }
-    });
-  }
-
-  return metadata;
-}
-
-// Parse sheet data with proper transaction extraction
-function parseSheetData(jsonData: any[][], sheetName: string) {
-  const metadata = extractMetadata(jsonData);
-  const transactions = {
-    intCr: [] as ImportedTransaction[],
-    intDr: [] as ImportedTransaction[],
-    extDr: [] as ImportedTransaction[],
-    extCr: [] as ImportedTransaction[],
-  };
-
-  // Find transaction table start
-  let transactionStartIndex = -1;
-  for (let i = 0; i < jsonData.length; i++) {
-    const row =
-      jsonData[i]?.map((cell) => (cell || "").toString().trim()) || [];
-    if (
-      row.includes("SN") &&
-      row.includes("DATE") &&
-      row.includes("DESCRIPTION")
-    ) {
-      transactionStartIndex = i;
-      break;
-    }
-  }
-
-  if (transactionStartIndex === -1) {
-    console.log(`[Import] No transaction table found in sheet "${sheetName}"`);
-    return { metadata, transactions };
-  }
-
-  // Get column indices
-  const headerRow =
-    jsonData[transactionStartIndex]?.map((cell) =>
-      (cell || "").toString().trim()
-    ) || [];
-
-  const colIndices = {
-    SN: headerRow.indexOf("SN"),
-    DATE: headerRow.indexOf("DATE"),
-    DESCRIPTION: headerRow.indexOf("DESCRIPTION"),
-    AMOUNT: headerRow.indexOf("AMOUNT"),
-    GLRefNo: headerRow.indexOf("GL Ref No."),
-    AGING: headerRow.indexOf("AGING(DAYS)"),
-    RECON: headerRow.indexOf("RECON"),
-  };
-
-  // Validate required columns exist
-  if (
-    colIndices.SN === -1 ||
-    colIndices.DATE === -1 ||
-    colIndices.DESCRIPTION === -1 ||
-    colIndices.RECON === -1
-  ) {
-    console.log(`[Import] Missing required columns in sheet "${sheetName}"`);
-    return { metadata, transactions };
-  }
-
-  console.log(
-    `[Import] Found transaction table at row ${
-      transactionStartIndex + 1
-    } in sheet "${sheetName}"`
-  );
-  console.log(`[Import] Column indices:`, colIndices);
-
-  // Parse transaction rows
-  let parsedCount = 0;
-  for (let i = transactionStartIndex + 1; i < jsonData.length; i++) {
-    const row =
-      jsonData[i]?.map((cell) => (cell || "").toString().trim()) || [];
-
-    // Skip empty rows or rows that don't have enough columns
-    if (
-      row.length <
-      Math.max(...Object.values(colIndices).filter((idx) => idx !== -1)) + 1
-    )
-      continue;
-
-    // Skip summary rows (TOTAL, ADD, LESS)
-    const description = row[colIndices.DESCRIPTION] || "";
-    if (
-      ["TOTAL:", "ADD:", "LESS:"].some((prefix) =>
-        description.startsWith(prefix)
-      )
-    ) {
-      continue;
-    }
-
-    const recon = (row[colIndices.RECON] || "").trim().toUpperCase();
-
-    // Only process rows with valid RECON values
-    if (!["INT CR", "INT DR", "EXT CR", "EXT DR"].includes(recon)) {
-      continue;
-    }
-
-    // Parse amount and aging
-    const amountStr = row[colIndices.AMOUNT] || "0";
-    const amount = Math.abs(
-      parseFloat(amountStr.replace(/[^0-9.-]/g, "")) || 0
-    );
-
-    const agingStr = row[colIndices.AGING] || "";
-    const aging = agingStr ? parseInt(agingStr, 10) : undefined;
-
-    if (amount === 0) continue;
-
-    const transaction: ImportedTransaction = {
-      sn: row[colIndices.SN] || `SN-${i}`,
-      date: row[colIndices.DATE] || new Date().toISOString().split("T")[0],
-      description: description || "Transaction",
-      amount: amount,
-      glRefNo: row[colIndices.GLRefNo] || row[colIndices.SN] || `REF-${i}`,
-      aging: aging,
-      recon: recon,
-      reference: row[colIndices.GLRefNo] || row[colIndices.SN] || `REF-${i}`,
-      type: recon.toLowerCase() as "int cr" | "int dr" | "ext dr" | "ext cr",
-    };
-
-    // Categorize transaction based on RECON value
-    switch (recon) {
-      case "INT CR":
-        transactions.intCr.push(transaction);
-        break;
-      case "INT DR":
-        transactions.intDr.push(transaction);
-        break;
-      case "EXT DR":
-        transactions.extDr.push(transaction);
-        break;
-      case "EXT CR":
-        transactions.extCr.push(transaction);
-        break;
-    }
-    parsedCount++;
-  }
-
-  console.log(
-    `[Import] Parsed ${parsedCount} transactions from sheet "${sheetName}"`
-  );
-  console.log(
-    `[Import]   INT CR: ${transactions.intCr.length}, INT DR: ${transactions.intDr.length}, EXT DR: ${transactions.extDr.length}, EXT CR: ${transactions.extCr.length}`
-  );
-
-  return { metadata, transactions };
-}
-
-function parseExcelFile(buffer: Buffer, fileName: string): TransactionSet[] {
-  try {
-    const workbook = XLSX.read(buffer, { type: "buffer" });
-    const transactionSets: TransactionSet[] = [];
-
-    workbook.SheetNames.forEach((sheetName, index) => {
-      const worksheet = workbook.Sheets[sheetName];
-
-      // Filter sheets: only process sheets containing "dept" in A1:D10
-      if (!isValidAccountSheet(worksheet)) {
-        console.log(
-          `[Import] Skipping sheet "${sheetName}" - does not contain "dept" in A1:D10`
-        );
-        return;
-      }
-
-      console.log(`[Import] Processing valid account sheet: "${sheetName}"`);
-
-      // Convert sheet to 2D array (preserves structure for metadata extraction)
-      const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, {
-        header: 1,
-        raw: false,
-        defval: "",
-      });
-
-      if (jsonData.length === 0) return;
-
-      // Parse sheet data with metadata extraction
-      const { metadata, transactions } = parseSheetData(jsonData, sheetName);
-
-      const totalTransactions =
-        transactions.intCr.length +
-        transactions.intDr.length +
-        transactions.extDr.length +
-        transactions.extCr.length;
-
-      // Include all sheets regardless of transaction count
-      transactionSets.push({
-        id: `set-${index + 1}-${Date.now()}`,
-        name: sheetName || `Transaction Set ${index + 1}`,
-        date:
-          metadata["REPORTING DATE"] ||
-          new Date().toISOString().split("T")[0],
-        totalTransactions,
-        glTransactions: {
-          intCr: transactions.intCr,
-          intDr: transactions.intDr,
-        },
-        statementTransactions: {
-          extDr: transactions.extDr,
-          extCr: transactions.extCr,
-        },
-        metadata, // Include extracted metadata
-      });
-
-      if (totalTransactions === 0) {
-        console.log(
-          `[Import] Sheet "${sheetName}" has no transactions but will be imported`
-        );
-      }
-    });
-
-    return transactionSets;
-  } catch (error) {
-    console.error("Error parsing Excel file:", error);
-    throw new Error("Failed to parse Excel file");
-  }
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -428,10 +101,24 @@ export async function POST(request: NextRequest) {
     );
 
     // Get user ID from session
-    const userId = (session.user as any)?.id || (session.user as any)?.email;
+    const userId = (session.user as any)?.id;
     if (!userId) {
       return NextResponse.json(
         { error: "User ID not found in session" },
+        { status: 401 }
+      );
+    }
+
+    // Verify user exists in database
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true }
+    });
+
+    if (!user) {
+      console.error(`[Import] User not found in database: ${userId}`);
+      return NextResponse.json(
+        { error: "User not found. Please log in again." },
         { status: 401 }
       );
     }

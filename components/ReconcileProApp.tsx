@@ -10,17 +10,18 @@ import { AdminDashboard } from './AdminDashboard';
 import { SnapshotHistoryModal } from './SnapshotHistoryModal';
 import { WRITE_OFF_LIMIT, DATE_WARNING_THRESHOLD_DAYS, DEFAULT_ROLE_PERMISSIONS, STORAGE_KEY, APP_NAME, ROLE_ADJUSTMENT_LIMITS, IDLE_TIMEOUT_MS } from '@/lib/constants';
 import { TransactionImportWorkspace } from './TransactionImportWorkspace';
+import { FolderSyncManager } from './FolderSyncManager';
 import { 
   Scale, RefreshCw, Upload, Calendar, Link2, AlertTriangle, ArrowRightLeft, 
   TrendingUp, DollarSign, Activity, X, RotateCcw, RotateCw,
   Download, FileText, CheckCircle, LogOut, ChevronDown, ShieldAlert,
-  LayoutDashboard, History, Save, MessageCircle, UserPlus
+  LayoutDashboard, History, Save, MessageCircle, UserPlus, FolderSync
 } from 'lucide-react';
 
 // Undo Stack Limit
 const MAX_UNDO_STACK = 20;
 
-type ViewMode = 'workspace' | 'admin' | 'import';
+type ViewMode = 'workspace' | 'admin' | 'import' | 'sync';
 
 // Simple Schema Validation Helper
 const validateTransaction = (tx: Transaction): boolean => {
@@ -210,7 +211,7 @@ export const AnalyzerWebApp: React.FC = () => {
 
   // Refresh imported files when switching back to workspace view
   useEffect(() => {
-    if (currentView === 'workspace' && isAuthenticated) {
+    if ((currentView === 'workspace' || currentView === 'sync') && isAuthenticated) {
       fetchImportedFiles();
     }
   }, [currentView, isAuthenticated, fetchImportedFiles]);
@@ -881,6 +882,7 @@ export const AnalyzerWebApp: React.FC = () => {
               <div className="flex bg-gray-100 rounded-lg p-1 gap-1">
                 <button onClick={() => setCurrentView('workspace')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${currentView === 'workspace' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Workspace</button>
                 <button onClick={() => setCurrentView('import')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${currentView === 'import' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><Upload size={14} />Import</button>
+                <button onClick={() => setCurrentView('sync')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${currentView === 'sync' ? 'bg-white shadow text-green-600' : 'text-gray-500 hover:text-gray-700'}`}><FolderSync size={14} />Folder Sync</button>
                 <button onClick={() => setCurrentView('admin')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${currentView === 'admin' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><LayoutDashboard size={14} />Admin</button>
               </div>
             )}
@@ -941,6 +943,12 @@ export const AnalyzerWebApp: React.FC = () => {
       ) : currentView === 'import' ? (
         <div className="flex-1 h-[calc(100vh-4rem)] overflow-hidden">
           <TransactionImportWorkspace />
+        </div>
+      ) : currentView === 'sync' ? (
+        <div className="flex-1 h-[calc(100vh-4rem)] overflow-auto">
+          <div className="max-w-7xl mx-auto p-6">
+            <FolderSyncManager />
+          </div>
         </div>
       ) : (
         <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
