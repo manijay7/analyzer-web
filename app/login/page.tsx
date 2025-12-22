@@ -70,14 +70,15 @@ export default function LoginPage() {
         {/* Content */}
         <div className="relative z-10 flex flex-col justify-between p-12 text-white w-full">
           {/* Logo */}
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
-              <div className="w-8 h-8 bg-[#E85D1C] rounded-full"></div>
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">ARBUTUS</h1>
-              <p className="text-sm text-white/90 italic">Drive Your Analytics</p>
-            </div>
+          <div>
+            <Image
+              src="/logos/arbutus_logo-300x79.png"
+              alt="Arbutus Logo"
+              width={300}
+              height={79}
+              priority
+              className="brightness-0 invert"
+            />
           </div>
 
           {/* Main Content */}
@@ -87,7 +88,7 @@ export default function LoginPage() {
                 Enterprise Reconciliation Platform
               </h2>
               <p className="text-lg text-white/90 leading-relaxed">
-                Streamline your reconciliation process with powerful analytics and automated matching.
+                Streamline your reconciliation process with powerful analytics and manual matching.
               </p>
             </div>
 
@@ -98,8 +99,8 @@ export default function LoginPage() {
                   <BarChart3 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold mb-1">Real-time Analytics</h3>
-                  <p className="text-sm text-white/80">Monitor reconciliation progress with live dashboards</p>
+                  <h3 className="font-semibold mb-1">Analytics</h3>
+                  <p className="text-sm text-white/80">Monitor reconciliation progress</p>
                 </div>
               </div>
               <div className="flex items-start gap-4">
@@ -107,8 +108,8 @@ export default function LoginPage() {
                   <TrendingUp className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold mb-1">Automated Matching</h3>
-                  <p className="text-sm text-white/80">Intelligent algorithms to speed up reconciliation</p>
+                  <h3 className="font-semibold mb-1">Manual Matching</h3>
+                  <p className="text-sm text-white/80">Intelligent and simple manual reconciliation</p>
                 </div>
               </div>
               <div className="flex items-start gap-4">
@@ -135,15 +136,14 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
           <div className="lg:hidden mb-8 text-center">
-            <div className="inline-flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#E85D1C] rounded-full flex items-center justify-center">
-                <div className="w-6 h-6 bg-white rounded-full"></div>
-              </div>
-              <div className="text-left">
-                <h1 className="text-xl font-bold text-gray-900 tracking-tight">ARBUTUS</h1>
-                <p className="text-xs text-gray-600 italic">Drive Your Analytics</p>
-              </div>
-            </div>
+            <Image
+              src="/logos/arbutus_logo-300x79.png"
+              alt="Arbutus Logo"
+              width={200}
+              height={53}
+              priority
+              className="inline-block"
+            />
           </div>
 
           {/* Login Card */}
