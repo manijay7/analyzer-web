@@ -13,6 +13,7 @@ interface TransactionWorkspaceProps {
   rightFilter: string;
   onToggleSelect: (id: string, side: Side) => void;
   onFilterChange: (side: Side, filter: string) => void;
+  metadata?: Record<string, any> | null;
 }
 
 export const TransactionWorkspace: React.FC<TransactionWorkspaceProps> = ({
@@ -24,6 +25,7 @@ export const TransactionWorkspace: React.FC<TransactionWorkspaceProps> = ({
   rightFilter,
   onToggleSelect,
   onFilterChange,
+  metadata,
 }) => {
   return (
     <div className="flex flex-row gap-6 h-[55vh]">
@@ -37,6 +39,7 @@ export const TransactionWorkspace: React.FC<TransactionWorkspaceProps> = ({
           className="h-full"
           filterText={leftFilter}
           onFilterChange={(filter) => onFilterChange(Side.Left, filter)}
+          metadata={metadata}
         />
       </div>
       <div className="w-1/2 h-full">
@@ -49,6 +52,7 @@ export const TransactionWorkspace: React.FC<TransactionWorkspaceProps> = ({
           className="h-full"
           filterText={rightFilter}
           onFilterChange={(filter) => onFilterChange(Side.Right, filter)}
+          metadata={metadata}
         />
       </div>
     </div>

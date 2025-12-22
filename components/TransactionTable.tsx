@@ -24,6 +24,42 @@ interface TransactionTableProps {
   className?: string;
   filterText: string;
   onFilterChange: (text: string) => void;
+  metadata?: Record<string, any> | null;
+}
+
+// Currency code mappings
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  'USD': '$',
+  'EUR': '€',
+  'GBP': '£',
+  'JPY': '¥',
+  'CNY': '¥',
+  'INR': '₹',
+  'AUD': 'A$',
+  'CAD': 'C$',
+  'CHF': 'Fr',
+  'NGN': '₦',
+  'ZAR': 'R',
+  'KES': 'KSh',
+  'GHS': 'GH₵',
+};
+
+// Extract currency code from GENERAL LEDGER NAME
+function extractCurrencyCode(metadata: Record<string, any> | null | undefined): string | null {
+  if (!metadata) return null;
+  
+  const ledgerName = metadata['GENERAL LEDGER NAME'];
+  if (!ledgerName || typeof ledgerName !== 'string') return null;
+  
+  // Look for common 3-letter currency codes at the end of the name
+  const currencies = Object.keys(CURRENCY_SYMBOLS);
+  for (const currency of currencies) {
+    if (ledgerName.toUpperCase().includes(currency)) {
+      return currency;
+    }
+  }
+  
+  return null;
 }
 
 export const TransactionTable: React.FC<TransactionTableProps> = ({
@@ -34,17 +70,18 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
   side,
   className,
   filterText,
-  onFilterChange
+  onFilterChange,
+  metadata
 }) => {
-  // Column visibility and configuration
+  // Column visibility and configuration (SN and Aging now visible by default)
   const [columns, setColumns] = useState<ColumnConfig[]>([
+    { key: 'sn', label: 'SN', visible: true, sortable: true },
     { key: 'date', label: 'Date', visible: true, sortable: true },
     { key: 'description', label: 'Description', visible: true, sortable: true },
     { key: 'amount', label: 'Amount', visible: true, sortable: true },
     { key: 'reference', label: 'Ref', visible: true, sortable: true },
     { key: 'drCr', label: 'Dr/Cr', visible: true, sortable: true },
-    { key: 'sn', label: 'SN', visible: false, sortable: true },
-    { key: 'aging', label: 'Aging', visible: false, sortable: true },
+    { key: 'aging', label: 'Aging', visible: true, sortable: true },
   ]);
 
   // Sorting state
@@ -62,11 +99,25 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
     aging: '',
   });
 
+  // Get currency symbol from metadata
+  const currencyCode = extractCurrencyCode(metadata);
+  const currencySymbol = currencyCode ? CURRENCY_SYMBOLS[currencyCode] : null;
+
   const formatCurrency = (amount: number) => {
+    // If we have a currency symbol from metadata, use it
+    if (currencySymbol) {
+      const formatted = new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(Math.abs(amount));
+      return `${currencySymbol}${formatted}`;
+    }
+    
+    // Otherwise, just format the number without currency symbol
     return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(amount);
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Math.abs(amount));
   };
 
   // Get display amount (negative for DR transactions)
@@ -337,9 +388,11 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
                       }
                       
                       if (col.key === 'amount') {
+                        const isNegative = displayAmount < 0;
+                        const formattedAmount = formatCurrency(displayAmount);
                         return (
-                          <td key={col.key} className={`px-4 py-3 text-right font-mono font-medium ${displayAmount < 0 ? 'text-red-600' : 'text-gray-800'}`}>
-                            {formatCurrency(displayAmount)}
+                          <td key={col.key} className={`px-4 py-3 text-right font-mono font-medium ${isNegative ? 'text-red-600' : 'text-gray-800'}`}>
+                            {isNegative ? `(${formattedAmount})` : formattedAmount}
                           </td>
                         );
                       }
