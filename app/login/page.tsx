@@ -124,7 +124,7 @@ export default function LoginPage() {
 
           {/* Footer */}
           <div className="text-sm text-white/60">
-            © 2025 Arbutus Software Inc. All rights reserved.
+            © 2025 IS Evolutions Consult. All rights reserved.
           </div>
         </div>
       </div>
