@@ -91,7 +91,10 @@ export async function POST(request: NextRequest) {
 
     if (transactionSets.length === 0) {
       return NextResponse.json(
-        { error: 'No valid sheets found in the file. Ensure at least one sheet contains "dept" in cells A1:D10.' },
+        {
+          error:
+            'No valid sheets found in the file. Ensure at least one sheet contains "dept" in cells A1:D10.',
+        },
         { status: 400 }
       );
     }
@@ -112,7 +115,7 @@ export async function POST(request: NextRequest) {
     // Verify user exists in database
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true }
+      select: { id: true },
     });
 
     if (!user) {

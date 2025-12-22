@@ -254,7 +254,10 @@ export function parseSheetData(jsonData: any[][], sheetName: string) {
 }
 
 // Parse Excel file into transaction sets
-export function parseExcelFile(buffer: Buffer, fileName: string): TransactionSet[] {
+export function parseExcelFile(
+  buffer: Buffer,
+  fileName: string
+): TransactionSet[] {
   try {
     const workbook = XLSX.read(buffer, { type: "buffer" });
     const transactionSets: TransactionSet[] = [];
@@ -295,8 +298,7 @@ export function parseExcelFile(buffer: Buffer, fileName: string): TransactionSet
         id: `set-${index + 1}-${Date.now()}`,
         name: sheetName || `Transaction Set ${index + 1}`,
         date:
-          metadata["REPORTING DATE"] ||
-          new Date().toISOString().split("T")[0],
+          metadata["REPORTING DATE"] || new Date().toISOString().split("T")[0],
         totalTransactions,
         glTransactions: {
           intCr: transactions.intCr,

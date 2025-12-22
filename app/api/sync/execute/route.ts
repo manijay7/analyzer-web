@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     // Verify user exists in database
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true }
+      select: { id: true },
     });
 
     if (!user) {
@@ -86,7 +86,9 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[FolderSync] Starting sync for folder: ${folderPath}`);
-    console.log(`[FolderSync] User: ${userId}, Skip duplicates: ${skipDuplicates}`);
+    console.log(
+      `[FolderSync] User: ${userId}, Skip duplicates: ${skipDuplicates}`
+    );
 
     // Read directory
     const files = await fs.readdir(folderPath);
@@ -137,7 +139,7 @@ export async function POST(request: NextRequest) {
 
         if (existingImport) {
           console.log(`[FolderSync] Duplicate found: ${fileName}`);
-          
+
           if (skipDuplicates) {
             duplicates++;
             results.push({
@@ -148,8 +150,12 @@ export async function POST(request: NextRequest) {
             continue;
           } else {
             // Delete existing import
-            console.log(`[FolderSync] Overriding existing import for: ${fileName}`);
-            await prisma.fileImport.delete({ where: { id: existingImport.id } });
+            console.log(
+              `[FolderSync] Overriding existing import for: ${fileName}`
+            );
+            await prisma.fileImport.delete({
+              where: { id: existingImport.id },
+            });
           }
         }
 
@@ -171,7 +177,8 @@ export async function POST(request: NextRequest) {
         const fileImport = await prisma.fileImport.create({
           data: {
             filename: fileName,
-            mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            mimeType:
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             fileSize: fileStats.size,
             checksum: fileHash,
             status: "COMPLETED",
@@ -194,7 +201,7 @@ export async function POST(request: NextRequest) {
 
         // Save each sheet and transactions
         let totalTransactionsImported = 0;
-        
+
         for (let i = 0; i < transactionSets.length; i++) {
           const set = transactionSets[i];
 
@@ -217,8 +224,14 @@ export async function POST(request: NextRequest) {
           const allTransactions = [
             ...set.glTransactions.intCr.map((t) => ({ ...t, side: "LEFT" })),
             ...set.glTransactions.intDr.map((t) => ({ ...t, side: "LEFT" })),
-            ...set.statementTransactions.extDr.map((t) => ({ ...t, side: "RIGHT" })),
-            ...set.statementTransactions.extCr.map((t) => ({ ...t, side: "RIGHT" })),
+            ...set.statementTransactions.extDr.map((t) => ({
+              ...t,
+              side: "RIGHT",
+            })),
+            ...set.statementTransactions.extCr.map((t) => ({
+              ...t,
+              side: "RIGHT",
+            })),
           ];
 
           if (allTransactions.length > 0) {
@@ -269,7 +282,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`\n[FolderSync] Complete! Success: ${succeeded}, Failed: ${failed}, Duplicates: ${duplicates}, Skipped: ${skipped}`);
+    console.log(
+      `\n[FolderSync] Complete! Success: ${succeeded}, Failed: ${failed}, Duplicates: ${duplicates}, Skipped: ${skipped}`
+    );
 
     return NextResponse.json({
       success: true,
@@ -287,10 +302,7 @@ export async function POST(request: NextRequest) {
     console.error("[FolderSync] Critical error:", error);
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to sync folder",
+        error: error instanceof Error ? error.message : "Failed to sync folder",
       },
       { status: 500 }
     );

@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
 
     // Read directory contents
     const files = await fs.readdir(folderPath);
-    
+
     // Filter for Excel files only
     const excelFiles = files.filter(
       (file) => file.endsWith(".xlsx") || file.endsWith(".xls")
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
       excelFiles.map(async (filename) => {
         const filePath = path.join(folderPath, filename);
         const stats = await fs.stat(filePath);
-        
+
         return {
           name: filename,
           path: filePath,
@@ -81,8 +81,7 @@ export async function GET(request: NextRequest) {
     console.error("Folder sync error:", error);
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "Failed to read folder",
+        error: error instanceof Error ? error.message : "Failed to read folder",
       },
       { status: 500 }
     );
