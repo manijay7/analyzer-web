@@ -1024,18 +1024,35 @@ export const AnalyzerWebApp: React.FC = () => {
             </div>
           </div>
           
-          {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-blue-50 rounded-full text-blue-600"><Activity size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Left Unmatched</p><p className="text-xl font-bold text-gray-800">{activeLeft.length}</p></div></div>
-              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-green-50 rounded-full text-green-600"><Activity size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Right Unmatched</p><p className="text-xl font-bold text-gray-800">{activeRight.length}</p></div></div>
-              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-indigo-50 rounded-full text-indigo-600"><TrendingUp size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Total Matches</p><p className="text-xl font-bold text-gray-800">{matches.length}</p></div></div>
-              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-purple-50 rounded-full text-purple-600"><DollarSign size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Matched Value</p><p className="text-xl font-bold text-gray-800">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalMatchedValue)}</p></div></div>
-          </div>
-          <div className="flex flex-row gap-6 h-[55vh]">
-              <div className="w-1/2 h-full"><TransactionTable title="Internal Ledger (A)" transactions={activeLeft} selectedIds={selectedLeftIds} onToggleSelect={(id) => toggleSelect(id, Side.Left)} side={Side.Left} className="h-full" filterText={leftFilter} onFilterChange={setLeftFilter} metadata={sheetMetadata}/></div>
-              <div className="w-1/2 h-full"><TransactionTable title="Bank Statement (B)" transactions={activeRight} selectedIds={selectedRightIds} onToggleSelect={(id) => toggleSelect(id, Side.Right)} side={Side.Right} className="h-full" filterText={rightFilter} onFilterChange={setRightFilter} metadata={sheetMetadata}/></div>
-          </div>
-          <div className="w-full pb-36"><HistoryPanel matches={matches} onUnmatch={handleUnmatch} currentUser={currentUser} canUnmatch={canUnmatch} canApprove={canApprove} onApprove={handleApproveMatch} lockedDate={lockedDate} selectedIds={selectedHistoryIds} onToggleSelect={toggleHistorySelect} onToggleSelectAll={toggleHistorySelectAll} onBatchUnmatch={handleBatchUnmatch} onBatchApprove={handleBatchApprove} onUpdateComment={handleUpdateMatchComment}/></div>
+          {/* Only show data when a sheet is selected */}
+          {selectedSheetId ? (
+            <>
+              {/* Stats Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-blue-50 rounded-full text-blue-600"><Activity size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Left Unmatched</p><p className="text-xl font-bold text-gray-800">{activeLeft.length}</p></div></div>
+                  <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-green-50 rounded-full text-green-600"><Activity size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Right Unmatched</p><p className="text-xl font-bold text-gray-800">{activeRight.length}</p></div></div>
+                  <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-indigo-50 rounded-full text-indigo-600"><TrendingUp size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Total Matches</p><p className="text-xl font-bold text-gray-800">{matches.length}</p></div></div>
+                  <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-purple-50 rounded-full text-purple-600"><DollarSign size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Matched Value</p><p className="text-xl font-bold text-gray-800">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalMatchedValue)}</p></div></div>
+              </div>
+              <div className="flex flex-row gap-6 h-[55vh]">
+                  <div className="w-1/2 h-full"><TransactionTable title="Internal Ledger (A)" transactions={activeLeft} selectedIds={selectedLeftIds} onToggleSelect={(id) => toggleSelect(id, Side.Left)} side={Side.Left} className="h-full" filterText={leftFilter} onFilterChange={setLeftFilter} metadata={sheetMetadata}/></div>
+                  <div className="w-1/2 h-full"><TransactionTable title="Bank Statement (B)" transactions={activeRight} selectedIds={selectedRightIds} onToggleSelect={(id) => toggleSelect(id, Side.Right)} side={Side.Right} className="h-full" filterText={rightFilter} onFilterChange={setRightFilter} metadata={sheetMetadata}/></div>
+              </div>
+              <div className="w-full pb-36"><HistoryPanel matches={matches} onUnmatch={handleUnmatch} currentUser={currentUser} canUnmatch={canUnmatch} canApprove={canApprove} onApprove={handleApproveMatch} lockedDate={lockedDate} selectedIds={selectedHistoryIds} onToggleSelect={toggleHistorySelect} onToggleSelectAll={toggleHistorySelectAll} onBatchUnmatch={handleBatchUnmatch} onBatchApprove={handleBatchApprove} onUpdateComment={handleUpdateMatchComment}/></div>
+            </>
+          ) : (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+              <div className="max-w-md mx-auto">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <FileText className="w-8 h-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Sheet Selected</h3>
+                <p className="text-sm text-gray-500">
+                  Please select an imported file and sheet from the dropdowns above to view transaction data and perform reconciliation.
+                </p>
+              </div>
+            </div>
+          )}
         </main>
       )}
 
