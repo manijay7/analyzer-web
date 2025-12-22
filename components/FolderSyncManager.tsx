@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Folder, FolderOpen, RefreshCw, CheckCircle, XCircle, AlertTriangle, Loader2, FileSpreadsheet } from 'lucide-react';
 
 interface FileResult {
@@ -20,6 +20,8 @@ interface SyncSummary {
   skipped: number;
 }
 
+const FOLDER_SYNC_STORAGE_KEY = 'folderSync:lastPath';
+
 export const FolderSyncManager: React.FC = () => {
   const [folderPath, setFolderPath] = useState('');
   const [skipDuplicates, setSkipDuplicates] = useState(true);
@@ -29,6 +31,21 @@ export const FolderSyncManager: React.FC = () => {
   const [results, setResults] = useState<FileResult[]>([]);
   const [summary, setSummary] = useState<SyncSummary | null>(null);
   const [error, setError] = useState('');
+
+  // Load saved folder path on mount
+  useEffect(() => {
+    const savedPath = localStorage.getItem(FOLDER_SYNC_STORAGE_KEY);
+    if (savedPath) {
+      setFolderPath(savedPath);
+    }
+  }, []);
+
+  // Save folder path to localStorage whenever it changes
+  useEffect(() => {
+    if (folderPath.trim()) {
+      localStorage.setItem(FOLDER_SYNC_STORAGE_KEY, folderPath);
+    }
+  }, [folderPath]);
 
   const handleScan = async () => {
     if (!folderPath.trim()) {
