@@ -8,9 +8,11 @@ import { HistoryPanel } from './HistoryPanel';
 import { AuditLogModal } from './AuditLogModal';
 import { AdminDashboard } from './AdminDashboard';
 import { SnapshotHistoryModal } from './SnapshotHistoryModal';
+import { ExportScopeModal } from './ExportScopeModal';
 import { WRITE_OFF_LIMIT, DATE_WARNING_THRESHOLD_DAYS, DEFAULT_ROLE_PERMISSIONS, STORAGE_KEY, APP_NAME, ROLE_ADJUSTMENT_LIMITS, IDLE_TIMEOUT_MS } from '@/lib/constants';
 import { TransactionImportWorkspace } from './TransactionImportWorkspace';
 import { FolderSyncManager } from './FolderSyncManager';
+import { exportTransactionsToCSV, ExportTransaction } from '@/lib/csv-export';
 import { 
   Scale, RefreshCw, Upload, Calendar, Link2, AlertTriangle, ArrowRightLeft, 
   TrendingUp, DollarSign, Activity, X, RotateCcw, RotateCw,
@@ -91,6 +93,7 @@ export const AnalyzerWebApp: React.FC = () => {
 
   // UI State
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   // --- Derived User Object from Session ---
   // Default to a fallback object if needed for types, but logic is guarded by isAuthenticated
@@ -385,8 +388,7 @@ export const AnalyzerWebApp: React.FC = () => {
         sn: imported.sn,
         glRefNo: imported.glRefNo,
         aging: imported.aging,
-        recon: imported.recon,
-        type: imported.type
+        recon: imported.recon
       });
       
       // Convert GL transactions (Left side)
@@ -501,8 +503,7 @@ export const AnalyzerWebApp: React.FC = () => {
         sn: imported.sn,
         glRefNo: imported.glRefNo,
         aging: imported.aging,
-        recon: imported.recon,
-        type: imported.type
+        recon: imported.recon
       });
       
       // Convert GL transactions (Left side)
@@ -574,7 +575,7 @@ export const AnalyzerWebApp: React.FC = () => {
 
     const totalLeft = leftTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
     const totalRight = rightTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
-    const diff = Math.abs(totalLeft - totalRight);
+    const diff = Math.abs(totalLeft + totalRight);
     
     // Strict matching: only allow exact matches (zero difference)
     if (diff !== 0) {
@@ -702,8 +703,89 @@ export const AnalyzerWebApp: React.FC = () => {
       alert("Permission Denied.");
       return;
     }
-    // ... csv logic ...
-    addAuditLog("Export", "User downloaded CSV report");
+    
+    // Check if sheet is selected
+    if (!selectedSheetId) {
+      alert("Please select a sheet first.");
+      return;
+    }
+    
+    // Open export scope modal
+    setIsExportModalOpen(true);
+  };
+  
+  const executeExport = async (scope: 'current' | 'workbook') => {
+    try {
+      const selectedFile = importedFiles.find(f => f.id === selectedFileId);
+      const selectedSheet = availableSheets.find(s => s.id === selectedSheetId);
+      
+      if (!selectedFile) {
+        throw new Error('File not found');
+      }
+      
+      let exportTransactions: ExportTransaction[] = [];
+      
+      if (scope === 'current') {
+        // Export current sheet - use in-memory transactions
+        const unmatchedTxs = transactions.filter(t => t.status === TransactionStatus.Unmatched);
+        
+        exportTransactions = unmatchedTxs.map(tx => ({
+          ...tx,
+          sheetName: selectedSheet?.name || '',
+          fileName: selectedFile.filename,
+          sheetMetadata: sheetMetadata || {},
+        }));
+        
+        // Generate and download CSV
+        exportTransactionsToCSV(exportTransactions, {
+          scope: 'current',
+          fileName: selectedFile.filename,
+          sheetName: selectedSheet?.name,
+        });
+        
+        addAuditLog(
+          "Export",
+          `Exported ${exportTransactions.length} unmatched transactions from sheet "${selectedSheet?.name}"`
+        );
+      } else {
+        // Export entire workbook - fetch from API
+        const response = await fetch('/api/transactions/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileId: selectedFileId,
+            scope: 'workbook',
+          }),
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch workbook data');
+        }
+        
+        const result = await response.json();
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Export failed');
+        }
+        
+        exportTransactions = result.data.transactions;
+        
+        // Generate and download CSV
+        exportTransactionsToCSV(exportTransactions, {
+          scope: 'workbook',
+          fileName: selectedFile.filename,
+        });
+        
+        addAuditLog(
+          "Export",
+          `Exported ${exportTransactions.length} unmatched transactions from ${result.data.metadata.totalSheets} sheets in workbook "${selectedFile.filename}"`
+        );
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Export failed. Please try again.');
+      throw error;
+    }
   };
   const handleUnmatch = (matchId: string) => {
     if (!hasPermission(currentUser.role, 'unmatch_transactions')) {
@@ -865,7 +947,7 @@ export const AnalyzerWebApp: React.FC = () => {
   
   const selLeftTotal = selectedLeftTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
   const selRightTotal = selectedRightTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
-  const diff = Math.abs(selLeftTotal - selRightTotal);
+  const diff = Math.abs(selLeftTotal + selRightTotal);
   
   const canAccessAdmin = hasPermission(currentUser.role, 'view_admin_panel');
   const canUnmatch = hasPermission(currentUser.role, 'unmatch_transactions');
@@ -879,6 +961,16 @@ export const AnalyzerWebApp: React.FC = () => {
     <div className="min-h-screen flex flex-col font-sans text-gray-900 bg-[#f8fafc]">
       <AuditLogModal isOpen={isAuditModalOpen} onClose={() => setIsAuditModalOpen(false)} logs={auditLog} currentUser={currentUser} />
       <SnapshotHistoryModal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} snapshots={snapshots} onRestore={restoreSnapshot} users={users} />
+      <ExportScopeModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        onExport={executeExport}
+        currentSheetName={availableSheets.find(s => s.id === selectedSheetId)?.name || ''}
+        currentSheetUnmatchedCount={transactions.filter(t => t.status === TransactionStatus.Unmatched).length}
+        workbookName={importedFiles.find(f => f.id === selectedFileId)?.filename || ''}
+        totalSheetsCount={availableSheets.length}
+        totalWorkbookUnmatchedCount={undefined}
+      />
 
       {/* Role Request Modal */}
       {isRoleRequestOpen && (
@@ -954,7 +1046,7 @@ export const AnalyzerWebApp: React.FC = () => {
                    <button onClick={() => setIsHistoryModalOpen(true)} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors"><History size={18} /></button>
                    <button onClick={handleManualSnapshot} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors"><Save size={18} /></button>
                    <button onClick={() => setIsAuditModalOpen(true)} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors"><FileText size={18} /></button>
-                   <button onClick={handleExport} disabled={matches.length===0} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors"><Download size={18} /></button>
+                   <button onClick={handleExport} disabled={!selectedSheetId} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Export Unmatched Transactions"><Download size={18} /></button>
                 </div>
               </>
             )}
@@ -1065,7 +1157,7 @@ export const AnalyzerWebApp: React.FC = () => {
                   <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-indigo-50 rounded-full text-indigo-600"><TrendingUp size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Total Matches</p><p className="text-xl font-bold text-gray-800">{matches.length}</p></div></div>
                   <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-purple-50 rounded-full text-purple-600"><DollarSign size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Matched Value</p><p className="text-xl font-bold text-gray-800">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalMatchedValue)}</p></div></div>
               </div>
-              <div className="flex flex-row gap-6 h-[55vh]">
+              <div className="flex flex-row gap-6 h-[85vh]">
                   <div className="w-1/2 h-full"><TransactionTable title="Internal Ledger (A)" transactions={activeLeft} selectedIds={selectedLeftIds} onToggleSelect={(id) => toggleSelect(id, Side.Left)} side={Side.Left} className="h-full" filterText={leftFilter} onFilterChange={setLeftFilter} metadata={sheetMetadata}/></div>
                   <div className="w-1/2 h-full"><TransactionTable title="Bank Statement (B)" transactions={activeRight} selectedIds={selectedRightIds} onToggleSelect={(id) => toggleSelect(id, Side.Right)} side={Side.Right} className="h-full" filterText={rightFilter} onFilterChange={setRightFilter} metadata={sheetMetadata}/></div>
               </div>

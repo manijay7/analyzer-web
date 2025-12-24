@@ -87,7 +87,6 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
         description: t.description.substring(0, 30),
         amount: t.amount,
         recon: t.recon,
-        type: t.type,
         side: t.side,
         glRefNo: t.glRefNo,
         sn: t.sn,
@@ -101,14 +100,6 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
         return acc;
       }, {} as Record<string, number>);
       console.log(`[TransactionTable] ${title} - RECON distribution:`, reconCounts);
-      
-      // Check if type field exists and has values
-      const typeCounts = transactions.reduce((acc, t) => {
-        const type = t.type || 'NULL/UNDEFINED';
-        acc[type] = (acc[type] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
-      console.log(`[TransactionTable] ${title} - TYPE distribution:`, typeCounts);
     }
   }, [transactions, title]);
   // Column visibility and configuration (SN and Aging now visible by default)
@@ -160,13 +151,13 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
 
   // Get display amount (ALWAYS negative for DR transactions)
   const getDisplayAmount = (tx: Transaction): number => {
-    // Try recon first, then fall back to type field
-    const reconOrType = (tx.recon || tx.type || '').toUpperCase();
+    // Use recon field for DR/CR detection
+    const recon = (tx.recon || '').toUpperCase();
     const originalAmount = tx.amount;
     let displayAmount: number;
     
-    // Any transaction with DR in the recon/type field should be negative
-    if (reconOrType.includes('DR')) {
+    // Any transaction with DR in the recon field should be negative
+    if (recon.includes('DR')) {
       displayAmount = -Math.abs(originalAmount); // Force negative
     } else {
       // CR transactions should always be positive
@@ -175,7 +166,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
     
     // Log first few for debugging
     if (Math.random() < 0.05) { // Log ~5% of transactions to avoid spam
-      console.log(`[getDisplayAmount] recon: "${tx.recon}", type: "${tx.type}", reconOrType: "${reconOrType}", original: ${originalAmount}, display: ${displayAmount}, isDR: ${reconOrType.includes('DR')}`);
+      console.log(`[getDisplayAmount] recon: "${tx.recon}", original: ${originalAmount}, display: ${displayAmount}, isDR: ${recon.includes('DR')}`);
     }
     
     return displayAmount;
@@ -193,8 +184,8 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
       case 'reference':
         return tx.glRefNo || tx.reference || '';
       case 'drCr':
-        // Try recon first, then fall back to type
-        return tx.recon || tx.type || '';
+        // Use recon field
+        return tx.recon || '';
       case 'sn':
         return tx.sn || '';
       case 'aging':
@@ -214,7 +205,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
       tx.description.toLowerCase().includes(search) ||
       getDisplayAmount(tx).toString().includes(search) ||
       (tx.glRefNo || tx.reference || '').toLowerCase().includes(search) ||
-      (tx.recon || tx.type || '').toLowerCase().includes(search) ||
+      (tx.recon || '').toLowerCase().includes(search) ||
       (tx.sn || '').toLowerCase().includes(search) ||
       (tx.aging?.toString() || '').includes(search)
     );
@@ -460,15 +451,15 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
                       
                       if (col.key === 'drCr') {
                         // Format recon value for better display (DR or CR only)
-                        // Try recon first, then fall back to type field
-                        const reconOrType = (tx.recon || tx.type || '').toUpperCase();
-                        const isDr = reconOrType.includes('DR');
-                        const isCr = reconOrType.includes('CR');
+                        // Use recon field
+                        const recon = (tx.recon || '').toUpperCase();
+                        const isDr = recon.includes('DR');
+                        const isCr = recon.includes('CR');
                         const displayValue = isDr ? 'DR' : isCr ? 'CR' : 'N/A';
                         
                         // Debug log for first few
                         if (Math.random() < 0.05) {
-                          console.log(`[DR/CR Display] raw recon: "${tx.recon}", type: "${tx.type}", reconOrType: "${reconOrType}", isDR: ${isDr}, isCR: ${isCr}, display: "${displayValue}"`);
+                          console.log(`[DR/CR Display] raw recon: "${tx.recon}", isDR: ${isDr}, isCR: ${isCr}, display: "${displayValue}"`);
                         }
                         
                         return (
