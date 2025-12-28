@@ -61,7 +61,7 @@ export function generateFileHash(buffer: Buffer): string {
 // Extract metadata from sheet data
 export function extractMetadata(jsonData: any[][]): Record<string, any> {
   const metadata: Record<string, any> = {};
-  const metadataFields = [
+  const beforeTransactionsFields = [
     "DEPT",
     "BRANCH",
     "REPORTING DATE",
@@ -70,28 +70,33 @@ export function extractMetadata(jsonData: any[][]): Record<string, any> {
     "GENERAL LEDGER NAME",
     "GENERAL LEDGER NUMBER",
     "BALANCE PER BANK STATEMENT",
-    "GRAND TOTAL",
+  ];
+
+  const afterTransactionsFields = [
     "INTERNAL ACCOUNT BALANCE AS AT",
-    "DIFFERENCE",
     "PREPARED BY:",
     "REVIEWED BY:",
   ];
 
+  let transactionTableStartIndex = -1;
+
+  // First pass: Extract metadata before transaction table
   for (let i = 0; i < jsonData.length; i++) {
     const row =
       jsonData[i]?.map((cell) => (cell || "").toString().trim()) || [];
 
-    // Stop if we hit the transaction table
+    // Mark where transaction table starts
     if (
       row.includes("SN") &&
       row.includes("DATE") &&
       row.includes("DESCRIPTION")
     ) {
+      transactionTableStartIndex = i;
       break;
     }
 
-    // Extract metadata fields
-    metadataFields.forEach((field) => {
+    // Extract metadata fields before transactions
+    beforeTransactionsFields.forEach((field) => {
       const fieldIndex = row.indexOf(field);
       if (fieldIndex !== -1) {
         // Look for value in next 3 columns
@@ -103,6 +108,32 @@ export function extractMetadata(jsonData: any[][]): Record<string, any> {
         }
       }
     });
+  }
+
+  // Second pass: Extract metadata after transaction table
+  if (transactionTableStartIndex !== -1) {
+    for (let i = transactionTableStartIndex; i < jsonData.length; i++) {
+      const row =
+        jsonData[i]?.map((cell) => (cell || "").toString().trim()) || [];
+
+      // Extract metadata fields after transactions
+      afterTransactionsFields.forEach((field) => {
+        // Use partial matching for fields that may have additional text (like dates)
+        const fieldIndex = row.findIndex((cell) =>
+          cell.toUpperCase().startsWith(field.toUpperCase())
+        );
+
+        if (fieldIndex !== -1) {
+          // Look for value in next 3 columns
+          for (let j = 1; j <= 3 && fieldIndex + j < row.length; j++) {
+            if (row[fieldIndex + j]) {
+              metadata[field] = row[fieldIndex + j];
+              break;
+            }
+          }
+        }
+      });
+    }
   }
 
   return metadata;

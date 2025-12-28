@@ -76,22 +76,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
   // Debug logging
   React.useEffect(() => {
     if (transactions.length > 0) {
-      console.log(`[TransactionTable] ${title} - Total transactions:`, transactions.length);
-      
-      // Log FULL first transaction to see all available fields
-      console.log(`[TransactionTable] ${title} - FULL first transaction:`, transactions[0]);
-      console.log(`[TransactionTable] ${title} - First transaction keys:`, Object.keys(transactions[0]));
-      
-      console.log(`[TransactionTable] ${title} - First 3 transactions (key fields):`, transactions.slice(0, 3).map(t => ({
-        id: t.id,
-        description: t.description.substring(0, 30),
-        amount: t.amount,
-        recon: t.recon,
-        side: t.side,
-        glRefNo: t.glRefNo,
-        sn: t.sn,
-        aging: t.aging
-      })));
+    
       
       // Log recon value distribution
       const reconCounts = transactions.reduce((acc, t) => {
@@ -99,7 +84,6 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
         acc[recon] = (acc[recon] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);
-      console.log(`[TransactionTable] ${title} - RECON distribution:`, reconCounts);
     }
   }, [transactions, title]);
   // Column visibility and configuration (SN and Aging now visible by default)
@@ -164,11 +148,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
       displayAmount = Math.abs(originalAmount);
     }
     
-    // Log first few for debugging
-    if (Math.random() < 0.05) { // Log ~5% of transactions to avoid spam
-      console.log(`[getDisplayAmount] recon: "${tx.recon}", original: ${originalAmount}, display: ${displayAmount}, isDR: ${recon.includes('DR')}`);
-    }
-    
+
     return displayAmount;
   };
 
@@ -456,11 +436,6 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
                         const isDr = recon.includes('DR');
                         const isCr = recon.includes('CR');
                         const displayValue = isDr ? 'DR' : isCr ? 'CR' : 'N/A';
-                        
-                        // Debug log for first few
-                        if (Math.random() < 0.05) {
-                          console.log(`[DR/CR Display] raw recon: "${tx.recon}", isDR: ${isDr}, isCR: ${isCr}, display: "${displayValue}"`);
-                        }
                         
                         return (
                           <td key={col.key} className="px-4 py-3 text-center">

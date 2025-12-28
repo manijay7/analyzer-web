@@ -8,11 +8,12 @@ import { HistoryPanel } from './HistoryPanel';
 import { AuditLogModal } from './AuditLogModal';
 import { AdminDashboard } from './AdminDashboard';
 import { SnapshotHistoryModal } from './SnapshotHistoryModal';
-import { ExportScopeModal } from './ExportScopeModal';
+import { ExportScopeModal, ExportFormat } from './ExportScopeModal';
 import { WRITE_OFF_LIMIT, DATE_WARNING_THRESHOLD_DAYS, DEFAULT_ROLE_PERMISSIONS, STORAGE_KEY, APP_NAME, ROLE_ADJUSTMENT_LIMITS, IDLE_TIMEOUT_MS } from '@/lib/constants';
 import { TransactionImportWorkspace } from './TransactionImportWorkspace';
 import { FolderSyncManager } from './FolderSyncManager';
 import { exportTransactionsToCSV, ExportTransaction } from '@/lib/csv-export';
+import { exportCustomReconciliationReport } from '@/lib/reconciliation-report-export';
 import { 
   Scale, RefreshCw, Upload, Calendar, Link2, AlertTriangle, ArrowRightLeft, 
   TrendingUp, DollarSign, Activity, X, RotateCcw, RotateCw,
@@ -714,7 +715,7 @@ export const AnalyzerWebApp: React.FC = () => {
     setIsExportModalOpen(true);
   };
   
-  const executeExport = async (scope: 'current' | 'workbook') => {
+  const executeExport = async (scope: 'current' | 'workbook', format: ExportFormat) => {
     try {
       const selectedFile = importedFiles.find(f => f.id === selectedFileId);
       const selectedSheet = availableSheets.find(s => s.id === selectedSheetId);
@@ -736,16 +737,36 @@ export const AnalyzerWebApp: React.FC = () => {
           sheetMetadata: sheetMetadata || {},
         }));
         
-        // Generate and download CSV
-        exportTransactionsToCSV(exportTransactions, {
-          scope: 'current',
-          fileName: selectedFile.filename,
-          sheetName: selectedSheet?.name,
-        });
+        // Export based on selected format
+        if (format === 'reconciliation') {
+          exportCustomReconciliationReport(exportTransactions, {
+            scope: 'current',
+            fileName: selectedFile.filename,
+            sheetName: selectedSheet?.name,
+            metadata: sheetMetadata || {},
+            preparedBy: currentUser.name, // Pass the current user's name
+            sheetImport: {
+              metaData: {
+                bankName: sheetMetadata?.['bank name'] || sheetMetadata?.['BANK NAME'] || '',
+                bankAccountNumber: sheetMetadata?.['BANK ACCOUNT NUMBER'] || '',
+                generalLedgerName: sheetMetadata?.['GENERAL LEDGER NAME'] || '',
+                generalLedgerNumber: sheetMetadata?.['GENERAL LEDGER NUMBER'] || '',
+                balancePerBankStatement: sheetMetadata?.['BALANCE PER BANK STATEMENT'] || 0,
+                reportingDate: selectedSheet?.reportingDate || '',
+              }
+            }
+          });
+        } else {
+          exportTransactionsToCSV(exportTransactions, {
+            scope: 'current',
+            fileName: selectedFile.filename,
+            sheetName: selectedSheet?.name,
+          });
+        }
         
         addAuditLog(
           "Export",
-          `Exported ${exportTransactions.length} unmatched transactions from sheet "${selectedSheet?.name}"`
+          `Exported ${exportTransactions.length} unmatched transactions from sheet "${selectedSheet?.name}" (Format: ${format})`
         );
       } else {
         // Export entire workbook - fetch from API
@@ -770,15 +791,34 @@ export const AnalyzerWebApp: React.FC = () => {
         
         exportTransactions = result.data.transactions;
         
-        // Generate and download CSV
-        exportTransactionsToCSV(exportTransactions, {
-          scope: 'workbook',
-          fileName: selectedFile.filename,
-        });
+        // Export based on selected format
+        if (format === 'reconciliation') {
+          exportCustomReconciliationReport(exportTransactions, {
+            scope: 'workbook',
+            fileName: selectedFile.filename,
+            metadata: sheetMetadata || {},
+            preparedBy: currentUser.name, // Pass the current user's name
+            sheetImport: {
+              metaData: {
+                bankName: sheetMetadata?.['GENERAL LEDGER NAME'] || sheetMetadata?.['BANK NAME'] || '',
+                bankAccountNumber: sheetMetadata?.['BANK ACCOUNT NUMBER'] || '',
+                generalLedgerName: sheetMetadata?.['GENERAL LEDGER NAME'] || '',
+                generalLedgerNumber: sheetMetadata?.['GENERAL LEDGER NUMBER'] || '',
+                balancePerBankStatement: sheetMetadata?.['BALANCE PER BANK STATEMENT'] || 0,
+                reportingDate: '',
+              }
+            }
+          });
+        } else {
+          exportTransactionsToCSV(exportTransactions, {
+            scope: 'workbook',
+            fileName: selectedFile.filename,
+          });
+        }
         
         addAuditLog(
           "Export",
-          `Exported ${exportTransactions.length} unmatched transactions from ${result.data.metadata.totalSheets} sheets in workbook "${selectedFile.filename}"`
+          `Exported ${exportTransactions.length} unmatched transactions from ${result.data.metadata.totalSheets} sheets in workbook "${selectedFile.filename}" (Format: ${format})`
         );
       }
     } catch (error) {
