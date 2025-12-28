@@ -23,7 +23,7 @@ export default withAuth(
     // In development: Allow unsafe-eval and unsafe-inline for Next.js HMR and React Fast Refresh
     // In production: Strict CSP without unsafe directives
     const isDevelopment = process.env.NODE_ENV === "development";
-    
+
     const cspDirectives = [
       "default-src 'self'",
       isDevelopment

@@ -1,22 +1,24 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { Transaction, Side, TransactionStatus, MatchGroup, AuditLogEntry, User, UserRole, Permission, RolePermissions, MatchStatus, SystemSnapshot, RoleRequest } from '@/lib/types';
-import { TransactionTable } from './TransactionTable';
-import { HistoryPanel } from './HistoryPanel';
 import { AuditLogModal } from './AuditLogModal';
 import { AdminDashboard } from './AdminDashboard';
 import { SnapshotHistoryModal } from './SnapshotHistoryModal';
 import { ExportScopeModal, ExportFormat } from './ExportScopeModal';
 import { ReconciliationReportPreviewModal } from './ReconciliationReportPreviewModal';
+import { ReconciliationLayout } from './ReconciliationLayout';
+import { WorkspaceContainer } from './WorkspaceContainer';
 import { WRITE_OFF_LIMIT, DATE_WARNING_THRESHOLD_DAYS, DEFAULT_ROLE_PERMISSIONS, STORAGE_KEY, APP_NAME, ROLE_ADJUSTMENT_LIMITS, IDLE_TIMEOUT_MS } from '@/lib/constants';
 import { TransactionImportWorkspace } from './TransactionImportWorkspace';
 import { FolderSyncManager } from './FolderSyncManager';
 import { exportTransactionsToCSV, ExportTransaction } from '@/lib/csv-export';
 import { exportCustomReconciliationReport } from '@/lib/reconciliation-report-export';
-import { 
-  Scale, RefreshCw, Upload, Calendar, Link2, AlertTriangle, ArrowRightLeft, 
+import { useReconciliationState } from '@/hooks/useReconciliationState';
+import { useFileManagement } from '@/hooks/useFileManagement';
+import {
+  Scale, RefreshCw, Upload, Calendar, Link2, AlertTriangle, ArrowRightLeft,
   TrendingUp, DollarSign, Activity, X, RotateCcw, RotateCw,
   Download, FileText, CheckCircle, LogOut, ChevronDown, ShieldAlert,
   LayoutDashboard, History, Save, MessageCircle, UserPlus, FolderSync
@@ -42,64 +44,6 @@ export const AnalyzerWebApp: React.FC = () => {
   const isAuthenticated = status === 'authenticated';
   const isLoadingSession = status === 'loading';
 
-  // --- State ---
-  const [users, setUsers] = useState<User[]>([]);
-  const [roleRequests, setRoleRequests] = useState<RoleRequest[]>([]);
-  
-  const [currentView, setCurrentView] = useState<ViewMode>('workspace');
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const [isRoleRequestOpen, setIsRoleRequestOpen] = useState(false);
-  const [roleRequestReason, setRoleRequestReason] = useState("");
-  
-  // Permissions State
-  const [rolePermissions, setRolePermissions] = useState<RolePermissions>(DEFAULT_ROLE_PERMISSIONS);
-
-  // File/Sheet Selection State (replacing mock date selection)
-  const [importedFiles, setImportedFiles] = useState<any[]>([]);
-  const [selectedFileId, setSelectedFileId] = useState<string>('');
-  const [availableSheets, setAvailableSheets] = useState<any[]>([]);
-  const [selectedSheetId, setSelectedSheetId] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<string>('');
-  const [lockedDate, setLockedDate] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isInitialized, setIsInitialized] = useState(false);
-  
-  // Data State
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [matches, setMatches] = useState<MatchGroup[]>([]);
-  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
-  const [sheetMetadata, setSheetMetadata] = useState<Record<string, any> | null>(null);
-  
-  // Snapshots State
-  const [snapshots, setSnapshots] = useState<SystemSnapshot[]>([]);
-  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-
-  // Selection state
-  const [selectedLeftIds, setSelectedLeftIds] = useState<Set<string>>(new Set());
-  const [selectedRightIds, setSelectedRightIds] = useState<Set<string>>(new Set());
-  
-  // History Batch Selection State
-  const [selectedHistoryIds, setSelectedHistoryIds] = useState<Set<string>>(new Set());
-  
-  // Filters
-  const [leftFilter, setLeftFilter] = useState("");
-  const [rightFilter, setRightFilter] = useState("");
-
-  // Match Input state
-  const [matchComment, setMatchComment] = useState("");
-  const [isCommentOpen, setIsCommentOpen] = useState(false);
-  
-  // Undo/Redo Stack
-  const [historyStack, setHistoryStack] = useState<string[]>([]);
-  const [futureStack, setFutureStack] = useState<string[]>([]);
-
-  // UI State
-  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
-  const [previewTransactions, setPreviewTransactions] = useState<ExportTransaction[]>([]);
-  const [previewOptions, setPreviewOptions] = useState<any>(null);
-
   // --- Derived User Object from Session ---
   // Default to a fallback object if needed for types, but logic is guarded by isAuthenticated
   const currentUser: User = session?.user ? {
@@ -110,6 +54,30 @@ export const AnalyzerWebApp: React.FC = () => {
     avatar: session.user.avatar || 'U',
     status: 'active'
   } : { id: 'guest', name: 'Guest', role: UserRole.Analyst, avatar: 'G', email: '' };
+
+  // --- Custom Hooks (after currentUser is defined) ---
+  const [reconciliationState, reconciliationActions] = useReconciliationState(currentUser);
+  const [fileState, fileActions] = useFileManagement(status);
+
+  // --- State ---
+  const [users, setUsers] = useState<User[]>([]);
+  const [roleRequests, setRoleRequests] = useState<RoleRequest[]>([]);
+
+  const [currentView, setCurrentView] = useState<ViewMode>('workspace');
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isRoleRequestOpen, setIsRoleRequestOpen] = useState(false);
+  const [roleRequestReason, setRoleRequestReason] = useState("");
+
+  // Permissions State
+  const [rolePermissions, setRolePermissions] = useState<RolePermissions>(DEFAULT_ROLE_PERMISSIONS);
+
+  // UI State
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [previewTransactions, setPreviewTransactions] = useState<ExportTransaction[]>([]);
+  const [previewOptions, setPreviewOptions] = useState<any>(null);
 
   // --- Idle Timeout Logic ---
   const lastActivityRef = useRef(Date.now());
@@ -148,46 +116,21 @@ export const AnalyzerWebApp: React.FC = () => {
 
   // --- Persistence & Initialization ---
 
-  // Function to fetch imported files from database
-  const fetchImportedFiles = useCallback(async () => {
-    try {
-      const response = await fetch('/api/transactions/sheets');
-      if (!response.ok) {
-        throw new Error('Failed to fetch imported files');
-      }
-      const result = await response.json();
-      if (result.success && Array.isArray(result.data)) {
-        setImportedFiles(result.data);
-        console.log(`[ReconcileProApp] Refreshed imported files: ${result.data.length} files found`);
-      }
-    } catch (err) {
-      console.log("Could not fetch imported files:", err);
-    }
-  }, []);
 
   useEffect(() => {
-    // Set initial date on client only to avoid hydration mismatch
-    setSelectedDate(new Date().toISOString().split('T')[0]);
-
     const savedData = localStorage.getItem(STORAGE_KEY);
     if (savedData) {
       try {
         const parsed = JSON.parse(savedData);
-        if (parsed.transactions) setTransactions(parsed.transactions);
-        if (parsed.matches) setMatches(parsed.matches);
-        if (parsed.auditLog) setAuditLog(parsed.auditLog);
-        if (parsed.selectedDate) setSelectedDate(parsed.selectedDate);
         // We will try to fetch users from API, if fail use storage
         if (parsed.users) setUsers(parsed.users);
         if (parsed.rolePermissions) setRolePermissions(parsed.rolePermissions);
-        if (parsed.lockedDate) setLockedDate(parsed.lockedDate);
-        if (parsed.snapshots) setSnapshots(parsed.snapshots);
         if (parsed.roleRequests) setRoleRequests(parsed.roleRequests);
       } catch (e) {
         console.error("Failed to restore session", e);
       }
     }
-    
+
     // Attempt to fetch real users if authenticated and has permission
     if (status === 'authenticated') {
         fetch('/api/admin/users')
@@ -209,63 +152,51 @@ export const AnalyzerWebApp: React.FC = () => {
                 // If permission denied or DB error, we just don't update the user list for admin panel
                 console.log("Could not fetch user list (likely insufficient permissions or first run)");
             });
-        
-        // Fetch imported files for selection
-        fetchImportedFiles();
     }
-
-    setIsInitialized(true);
-  }, [status, fetchImportedFiles]);
+  }, [status]);
 
   // Refresh imported files when switching back to workspace view
   useEffect(() => {
     if ((currentView === 'workspace' || currentView === 'sync') && isAuthenticated) {
-      fetchImportedFiles();
+      fileActions.fetchImportedFiles();
     }
-  }, [currentView, isAuthenticated, fetchImportedFiles]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, isAuthenticated]);
 
   // Save to local storage on change
   useEffect(() => {
-    if (!isInitialized) return;
+    if (!fileState.isInitialized) return;
     const stateToSave = {
-      transactions,
-      matches,
-      auditLog,
-      selectedDate,
       users,
       rolePermissions,
-      lockedDate,
-      snapshots,
       roleRequests,
       timestamp: Date.now()
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
-  }, [transactions, matches, auditLog, selectedDate, users, rolePermissions, lockedDate, snapshots, roleRequests, isInitialized]);
+    // Merge with existing storage to preserve hook-managed data
+    const existingData = localStorage.getItem(STORAGE_KEY);
+    let parsed = {};
+    if (existingData) {
+      try {
+        parsed = JSON.parse(existingData);
+      } catch (e) {
+        console.error("Failed to parse existing storage", e);
+      }
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...parsed, ...stateToSave }));
+  }, [users, rolePermissions, roleRequests, fileState.isInitialized]);
 
 
   // --- Helper Functions ---
-
-  const addAuditLog = (action: string, details: string) => {
-    const newEntry: AuditLogEntry = {
-      id: Math.random().toString(36).substring(2, 9),
-      timestamp: Date.now(),
-      action,
-      details,
-      userId: currentUser.id,
-      userName: currentUser.name
-    };
-    setAuditLog(prev => [...prev, newEntry]);
-  };
 
   const hasPermission = (role: UserRole, permission: Permission): boolean => {
     return rolePermissions[role]?.includes(permission) ?? false;
   };
 
   const isPeriodLocked = (dateStr: string): boolean => {
-    if (!lockedDate) return false;
-    return new Date(dateStr) <= new Date(lockedDate);
+    if (!fileState.lockedDate) return false;
+    return new Date(dateStr) <= new Date(fileState.lockedDate);
   };
-  
+
   const handleLogout = async () => {
     // Explicitly do not redirect automatically, wait for manual window location change
     // This ensures client state is fully wiped by browser navigation
@@ -273,384 +204,11 @@ export const AnalyzerWebApp: React.FC = () => {
     window.location.href = '/login';
   };
 
-  // --- Undo / Redo Logic ---
-
-  const saveCheckpoint = () => {
-    const currentState = JSON.stringify({
-      transactions,
-      matches,
-      auditLog,
-      users,
-      rolePermissions,
-      lockedDate,
-      roleRequests
-    });
-    setHistoryStack(prev => {
-      const newStack = [...prev, currentState];
-      if (newStack.length > MAX_UNDO_STACK) newStack.shift();
-      return newStack;
-    });
-    setFutureStack([]); 
-  };
-
-  const undo = () => {
-    if (historyStack.length === 0) return;
-    
-    const currentState = JSON.stringify({
-        transactions,
-        matches,
-        auditLog,
-        users,
-        rolePermissions,
-        lockedDate,
-        roleRequests
-    });
-    setFutureStack(prev => [currentState, ...prev]);
-
-    const previousStateString = historyStack[historyStack.length - 1];
-    restoreState(previousStateString);
-    
-    setHistoryStack(prev => prev.slice(0, -1));
-  };
-
-  const redo = () => {
-      if (futureStack.length === 0) return;
-
-      const currentState = JSON.stringify({
-        transactions,
-        matches,
-        auditLog,
-        users,
-        rolePermissions,
-        lockedDate,
-        roleRequests
-      });
-      setHistoryStack(prev => [...prev, currentState]);
-
-      const nextStateString = futureStack[0];
-      restoreState(nextStateString);
-
-      setFutureStack(prev => prev.slice(1));
-  };
-
-  const restoreState = (stateString: string) => {
-      try {
-        const state = JSON.parse(stateString);
-        setTransactions(state.transactions);
-        setMatches(state.matches);
-        setAuditLog(state.auditLog);
-        if (state.users) setUsers(state.users);
-        if (state.rolePermissions) setRolePermissions(state.rolePermissions);
-        if (state.lockedDate !== undefined) setLockedDate(state.lockedDate);
-        if (state.roleRequests) setRoleRequests(state.roleRequests);
-        
-        setSelectedLeftIds(new Set());
-        setSelectedRightIds(new Set());
-        setSelectedHistoryIds(new Set());
-      } catch (e) {
-        console.error("State restore failed", e);
-      }
-  };
-
-  // --- Core Logic ---
-
-  // Updated loadData to load from database instead of mock data
-  const loadData = useCallback(async () => {
-    if (!selectedSheetId) {
-      alert('Please select a file and sheet to load');
-      return;
-    }
-    
-    if (selectedDate && isPeriodLocked(selectedDate)) {
-        console.log("Loading data for a closed period");
-    }
-    
-    saveCheckpoint(); 
-    
-    setIsLoading(true);
-    try {
-      // Fetch sheet data from database
-      const response = await fetch(`/api/transactions/sheets?sheetId=${selectedSheetId}`);
-      const result = await response.json();
-      
-      if (!result.success || !result.data) {
-        throw new Error(result.error || 'Failed to load sheet data');
-      }
-      
-      const sheetData = result.data;
-      
-      // Convert imported transactions to app Transaction format
-      const convertToTransaction = (imported: any, side: Side): Transaction => ({
-        id: `${side === Side.Left ? 'L' : 'R'}-${Math.random().toString(36).substring(2, 9)}`,
-        date: imported.date,
-        description: imported.description,
-        amount: imported.amount,
-        reference: imported.reference || imported.glRefNo,
-        side: side,
-        status: TransactionStatus.Unmatched,
-        importedBy: currentUser.id,
-        // Include Excel fields for DR/CR detection
-        sn: imported.sn,
-        glRefNo: imported.glRefNo,
-        aging: imported.aging,
-        recon: imported.recon
-      });
-      
-      // Convert GL transactions (Left side)
-      const leftTxs: Transaction[] = [
-        ...sheetData.glTransactions.intCr.map((t: any) => convertToTransaction(t, Side.Left)),
-        ...sheetData.glTransactions.intDr.map((t: any) => convertToTransaction(t, Side.Left))
-      ];
-      
-      // Convert Statement transactions (Right side)
-      const rightTxs: Transaction[] = [
-        ...sheetData.statementTransactions.extDr.map((t: any) => convertToTransaction(t, Side.Right)),
-        ...sheetData.statementTransactions.extCr.map((t: any) => convertToTransaction(t, Side.Right))
-      ];
-      
-      const allTxs = [...leftTxs, ...rightTxs];
-      
-      setTransactions(allTxs);
-      setSelectedLeftIds(new Set());
-      setSelectedRightIds(new Set());
-      setSelectedHistoryIds(new Set());
-      setMatches([]); 
-      setMatchComment("");
-      setHistoryStack([]);
-      setFutureStack([]);
-      
-      // Update date from sheet metadata
-      const sheetDate = sheetData.reportingDate || new Date().toISOString().split('T')[0];
-      setSelectedDate(sheetDate);
-      
-      createSnapshot(`Import: ${sheetData.name}`, 'IMPORT', allTxs, []);
-      
-      addAuditLog("Import", `Loaded ${allTxs.length} transactions from sheet "${sheetData.name}" by ${currentUser.name}`);
-    } catch (e) {
-      console.error("Failed to load transactions", e);
-      alert('Failed to load transaction data. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedSheetId, currentUser, selectedDate, lockedDate]);
-  
-  // Handler for file selection change
-  const handleFileChange = useCallback((fileId: string) => {
-    setSelectedFileId(fileId);
-    setSelectedSheetId('');
-    setAvailableSheets([]);
-    
-    // If no file selected, clear transactions and metadata
-    if (!fileId) {
-      setTransactions([]);
-      setSelectedLeftIds(new Set());
-      setSelectedRightIds(new Set());
-      setSelectedHistoryIds(new Set());
-      setMatches([]);
-      setMatchComment("");
-      setSheetMetadata(null);
-      return;
-    }
-    
-    const selectedFile = importedFiles.find(f => f.id === fileId);
-    if (selectedFile && selectedFile.sheets) {
-      setAvailableSheets(selectedFile.sheets);
-      // Note: No auto-select, user must manually choose a sheet
-    }
-  }, [importedFiles]);
-  
-  // Handler for sheet selection change - auto-load data
-  const handleSheetChange = useCallback(async (sheetId: string) => {
-    setSelectedSheetId(sheetId);
-    
-    // If no sheet selected, clear transactions and metadata
-    if (!sheetId) {
-      setTransactions([]);
-      setSelectedLeftIds(new Set());
-      setSelectedRightIds(new Set());
-      setSelectedHistoryIds(new Set());
-      setMatches([]);
-      setMatchComment("");
-      setSheetMetadata(null);
-      return;
-    }
-    
-    // Auto-load data for selected sheet
-    if (selectedDate && isPeriodLocked(selectedDate)) {
-        console.log("Loading data for a closed period");
-    }
-    
-    saveCheckpoint();
-    setIsLoading(true);
-    
-    try {
-      // Fetch sheet data from database
-      const response = await fetch(`/api/transactions/sheets?sheetId=${sheetId}`);
-      const result = await response.json();
-      
-      if (!result.success || !result.data) {
-        throw new Error(result.error || 'Failed to load sheet data');
-      }
-      
-      const sheetData = result.data;
-      
-      // Convert imported transactions to app Transaction format
-      const convertToTransaction = (imported: any, side: Side): Transaction => ({
-        id: `${side === Side.Left ? 'L' : 'R'}-${Math.random().toString(36).substring(2, 9)}`,
-        date: imported.date,
-        description: imported.description,
-        amount: imported.amount,
-        reference: imported.reference || imported.glRefNo,
-        side: side,
-        status: TransactionStatus.Unmatched,
-        importedBy: currentUser.id,
-        // Include Excel fields for DR/CR detection
-        sn: imported.sn,
-        glRefNo: imported.glRefNo,
-        aging: imported.aging,
-        recon: imported.recon
-      });
-      
-      // Convert GL transactions (Left side)
-      const leftTxs: Transaction[] = [
-        ...sheetData.glTransactions.intCr.map((t: any) => convertToTransaction(t, Side.Left)),
-        ...sheetData.glTransactions.intDr.map((t: any) => convertToTransaction(t, Side.Left))
-      ];
-      
-      // Convert Statement transactions (Right side)
-      const rightTxs: Transaction[] = [
-        ...sheetData.statementTransactions.extDr.map((t: any) => convertToTransaction(t, Side.Right)),
-        ...sheetData.statementTransactions.extCr.map((t: any) => convertToTransaction(t, Side.Right))
-      ];
-      
-      const allTxs = [...leftTxs, ...rightTxs];
-      
-      setTransactions(allTxs);
-      setSelectedLeftIds(new Set());
-      setSelectedRightIds(new Set());
-      setSelectedHistoryIds(new Set());
-      setMatches([]);
-      setMatchComment("");
-      setHistoryStack([]);
-      setFutureStack([]);
-      
-      // Store sheet metadata
-      setSheetMetadata(sheetData.metadata || {});
-      
-      // Update date from sheet metadata
-      const sheetDate = sheetData.reportingDate || new Date().toISOString().split('T')[0];
-      setSelectedDate(sheetDate);
-      
-      createSnapshot(`Import: ${sheetData.name}`, 'IMPORT', allTxs, []);
-      
-      addAuditLog("Import", `Loaded ${allTxs.length} transactions from sheet "${sheetData.name}" by ${currentUser.name}`);
-    } catch (e) {
-      console.error("Failed to load transactions", e);
-      alert('Failed to load transaction data. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedDate, currentUser, lockedDate]);
-
-  const executeMatch = () => {
-    if (!hasPermission(currentUser.role, 'perform_matching')) {
-      alert("Permission Denied: Your role cannot perform matches.");
-      return;
-    }
-
-    const leftTxs = transactions.filter(t => selectedLeftIds.has(t.id));
-    const rightTxs = transactions.filter(t => selectedRightIds.has(t.id));
-    
-    const allDates = [...leftTxs, ...rightTxs].map(t => t.date);
-    if (allDates.some(d => isPeriodLocked(d))) {
-        alert(`Cannot match transactions in a closed period (Locked Date: ${lockedDate})`);
-        return;
-    }
-
-    saveCheckpoint();
-
-    // Helper function to get actual amount (negative for DR transactions)
-    const getActualAmount = (t: Transaction): number => {
-      const recon = t.recon?.toUpperCase() || '';
-      if (recon.includes('DR')) {
-        return -Math.abs(t.amount); // DR transactions are negative
-      }
-      return Math.abs(t.amount); // CR transactions are positive
-    };
-
-    const totalLeft = leftTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
-    const totalRight = rightTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
-    const diff = Math.abs(totalLeft + totalRight);
-    
-    // Strict matching: only allow exact matches (zero difference)
-    if (diff !== 0) {
-        alert(`Cannot match: Difference must be exactly zero. Current difference: ${diff.toFixed(2)}`);
-        return;
-    }
-
-    const newMatch: MatchGroup = {
-      id: Math.random().toString(36).substring(2, 9),
-      timestamp: Date.now(),
-      leftTransactions: leftTxs,
-      rightTransactions: rightTxs,
-      totalLeft,
-      totalRight,
-      difference: 0,
-      adjustment: undefined,
-      comment: matchComment.trim() || undefined,
-      matchByUserId: currentUser.id,
-      status: 'APPROVED'
-    };
-
-    setMatches(prev => [...prev, newMatch]);
-    setTransactions(prev => prev.map(t => {
-      if (selectedLeftIds.has(t.id) || selectedRightIds.has(t.id)) {
-        return { ...t, status: TransactionStatus.Matched, matchId: newMatch.id };
-      }
-      return t;
-    }));
-
-    addAuditLog("Match", `Matched ${leftTxs.length} vs ${rightTxs.length}. Diff: ${diff.toFixed(2)}. Status: ${status}`);
-    clearSelection();
-  };
-
-  const handleApproveMatch = (matchId: string) => {
-      if (!hasPermission(currentUser.role, 'approve_adjustments')) {
-          alert("Permission Denied: You cannot approve adjustments.");
-          return;
-      }
-      
-      const match = matches.find(m => m.id === matchId);
-      if (!match) return;
-
-      // Separation of Duties Check
-      const txs = [...match.leftTransactions, ...match.rightTransactions];
-      const isImporter = txs.some(t => t.importedBy === currentUser.id);
-
-      if (isImporter && currentUser.role !== UserRole.Admin) { 
-          alert("Separation of Duties Conflict: You imported these transactions, so you cannot approve their adjustments. Please ask another Manager.");
-          return;
-      }
-      
-      saveCheckpoint();
-      setMatches(prev => prev.map(m => {
-          if (m.id === matchId) {
-              return {
-                  ...m,
-                  status: 'APPROVED',
-                  approvedBy: currentUser.name,
-                  approvedAt: Date.now()
-              };
-          }
-          return m;
-      }));
-      addAuditLog("Approval", `Approved adjustment for match #${matchId}`);
-  };
 
   // --- Role Requests ---
   const handleRoleRequest = () => {
     if (!roleRequestReason) return;
-    saveCheckpoint();
+    reconciliationActions.saveCheckpoint();
     const request: RoleRequest = {
         id: Math.random().toString(36).substring(2, 9),
         userId: currentUser.id,
@@ -664,99 +222,63 @@ export const AnalyzerWebApp: React.FC = () => {
     setIsRoleRequestOpen(false);
     setRoleRequestReason("");
     alert("Role upgrade request sent to Admins.");
-    addAuditLog("Role Request", "User requested upgrade to Manager.");
+    reconciliationActions.addAuditLog("Role Request", "User requested upgrade to Manager.");
   };
 
-  // --- Other Handlers (Reuse existing logic) ---
-  const createSnapshot = (label: string, type: 'IMPORT' | 'MANUAL' | 'AUTO', txs: Transaction[], matchGroups: MatchGroup[]) => {
-      const matchedValue = matchGroups.reduce((acc, m) => acc + m.totalLeft, 0);
-      const newSnapshot: SystemSnapshot = {
-          id: Math.random().toString(36).substring(2, 9),
-          timestamp: Date.now(),
-          label,
-          type,
-          transactions: txs,
-          matches: matchGroups,
-          selectedDate,
-          createdByUserId: currentUser.id,
-          stats: { totalTransactions: txs.length, totalMatches: matchGroups.length, matchedValue }
-      };
-      setSnapshots(prev => [...prev, newSnapshot]);
-      return newSnapshot;
-  };
-  const handleManualSnapshot = () => {
-      saveCheckpoint();
-      const label = prompt("Enter a label for this version:", "Manual Save");
-      if (!label) return;
-      createSnapshot(label, 'MANUAL', transactions, matches);
-      addAuditLog("Version Save", `Created manual snapshot: ${label}`);
-  };
-  const restoreSnapshot = (snapshot: SystemSnapshot) => {
-      if (!window.confirm(`Restore "${snapshot.label}"?`)) return;
-      saveCheckpoint();
-      setTransactions(snapshot.transactions);
-      setMatches(snapshot.matches);
-      setSelectedDate(snapshot.selectedDate);
-      setSelectedLeftIds(new Set());
-      setSelectedRightIds(new Set());
-      setMatchComment("");
-      addAuditLog("Restoration", `Restored snapshot: ${snapshot.label}`);
-      setIsHistoryModalOpen(false);
-  };
   const handleExport = () => {
     if (!hasPermission(currentUser.role, 'export_data')) {
       alert("Permission Denied.");
       return;
     }
-    
+
     // Check if sheet is selected
-    if (!selectedSheetId) {
+    if (!fileState.selectedSheetId) {
       alert("Please select a sheet first.");
       return;
     }
-    
+
     // Open export scope modal
     setIsExportModalOpen(true);
   };
-  
+
   const executeExport = async (scope: 'current' | 'workbook', format: ExportFormat) => {
     try {
-      const selectedFile = importedFiles.find(f => f.id === selectedFileId);
-      const selectedSheet = availableSheets.find(s => s.id === selectedSheetId);
-      
+      const selectedFile = fileState.importedFiles.find(f => f.id === fileState.selectedFileId);
+      const selectedSheet = fileState.availableSheets.find(s => s.id === fileState.selectedSheetId);
+
       if (!selectedFile) {
         throw new Error('File not found');
       }
-      
+
       let exportTransactions: ExportTransaction[] = [];
-      
+
       if (scope === 'current') {
         // Export current sheet - use in-memory transactions
-        const unmatchedTxs = transactions.filter(t => t.status === TransactionStatus.Unmatched);
-        
+        const unmatchedTxs = reconciliationState.transactions.filter(t => t.status === TransactionStatus.Unmatched);
+
         exportTransactions = unmatchedTxs.map(tx => ({
           ...tx,
           sheetName: selectedSheet?.name || '',
           fileName: selectedFile.filename,
-          sheetMetadata: sheetMetadata || {},
+          sheetMetadata: fileState.sheetMetadata || {},
         }));
-        
+
         // Export based on selected format
         if (format === 'reconciliation') {
           exportCustomReconciliationReport(exportTransactions, {
             scope: 'current',
             fileName: selectedFile.filename,
             sheetName: selectedSheet?.name,
-            metadata: sheetMetadata || {},
+            metadata: fileState.sheetMetadata || {},
             reviewedBy: currentUser.name, // Current user is reviewing/exporting
             sheetImport: {
               metaData: {
-                bankName: sheetMetadata?.['bank name'] || sheetMetadata?.['BANK NAME'] || '',
-                bankAccountNumber: sheetMetadata?.['BANK ACCOUNT NUMBER'] || '',
-                generalLedgerName: sheetMetadata?.['GENERAL LEDGER NAME'] || '',
-                generalLedgerNumber: sheetMetadata?.['GENERAL LEDGER NUMBER'] || '',
-                balancePerBankStatement: sheetMetadata?.['BALANCE PER BANK STATEMENT'] || 0,
-                internalAccountBalance: sheetMetadata?.['INTERNAL ACCOUNT BALANCE AS AT'] || 0,
+                bankName: fileState.sheetMetadata?.['bank name'] || fileState.sheetMetadata?.['BANK NAME'] || '',
+                bankAccountNumber: fileState.sheetMetadata?.['BANK ACCOUNT NUMBER'] || '',
+                generalLedgerName: fileState.sheetMetadata?.['GENERAL LEDGER NAME'] || '',
+                generalLedgerNumber: fileState.sheetMetadata?.['GENERAL LEDGER NUMBER'] || '',
+                balancePerBankStatement: fileState.sheetMetadata?.['BALANCE PER BANK STATEMENT'] || 0,
+                internalAccountBalance: fileState.sheetMetadata?.['INTERNAL ACCOUNT BALANCE AS AT'] || 0,
                 reportingDate: selectedSheet?.reportingDate || '',
               }
             }
@@ -768,8 +290,8 @@ export const AnalyzerWebApp: React.FC = () => {
             sheetName: selectedSheet?.name,
           });
         }
-        
-        addAuditLog(
+
+        reconciliationActions.addAuditLog(
           "Export",
           `Exported ${exportTransactions.length} unmatched transactions from sheet "${selectedSheet?.name}" (Format: ${format})`
         );
@@ -779,37 +301,37 @@ export const AnalyzerWebApp: React.FC = () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            fileId: selectedFileId,
+            fileId: fileState.selectedFileId,
             scope: 'workbook',
           }),
         });
-        
+
         if (!response.ok) {
           throw new Error('Failed to fetch workbook data');
         }
-        
+
         const result = await response.json();
-        
+
         if (!result.success) {
           throw new Error(result.error || 'Export failed');
         }
-        
+
         exportTransactions = result.data.transactions;
-        
+
         // Export based on selected format
         if (format === 'reconciliation') {
           exportCustomReconciliationReport(exportTransactions, {
             scope: 'workbook',
             fileName: selectedFile.filename,
-            metadata: sheetMetadata || {},
+            metadata: fileState.sheetMetadata || {},
             reviewedBy: currentUser.name, // Current user is reviewing/exporting
             sheetImport: {
               metaData: {
-                bankName: sheetMetadata?.['GENERAL LEDGER NAME'] || sheetMetadata?.['BANK NAME'] || '',
-                bankAccountNumber: sheetMetadata?.['BANK ACCOUNT NUMBER'] || '',
-                generalLedgerName: sheetMetadata?.['GENERAL LEDGER NAME'] || '',
-                generalLedgerNumber: sheetMetadata?.['GENERAL LEDGER NUMBER'] || '',
-                balancePerBankStatement: sheetMetadata?.['BALANCE PER BANK STATEMENT'] || 0,
+                bankName: fileState.sheetMetadata?.['GENERAL LEDGER NAME'] || fileState.sheetMetadata?.['BANK NAME'] || '',
+                bankAccountNumber: fileState.sheetMetadata?.['BANK ACCOUNT NUMBER'] || '',
+                generalLedgerName: fileState.sheetMetadata?.['GENERAL LEDGER NAME'] || '',
+                generalLedgerNumber: fileState.sheetMetadata?.['GENERAL LEDGER NUMBER'] || '',
+                balancePerBankStatement: fileState.sheetMetadata?.['BALANCE PER BANK STATEMENT'] || 0,
                 reportingDate: '',
               }
             }
@@ -820,8 +342,8 @@ export const AnalyzerWebApp: React.FC = () => {
             fileName: selectedFile.filename,
           });
         }
-        
-        addAuditLog(
+
+        reconciliationActions.addAuditLog(
           "Export",
           `Exported ${exportTransactions.length} unmatched transactions from ${result.data.metadata.totalSheets} sheets in workbook "${selectedFile.filename}" (Format: ${format})`
         );
@@ -832,68 +354,21 @@ export const AnalyzerWebApp: React.FC = () => {
       throw error;
     }
   };
-  const handleUnmatch = (matchId: string) => {
-    if (!hasPermission(currentUser.role, 'unmatch_transactions')) {
-      alert("Permission Denied.");
-      return;
-    }
-    const match = matches.find(m => m.id === matchId);
-    if (!match) return;
-    const allDates = [...match.leftTransactions, ...match.rightTransactions].map(t => t.date);
-    if (allDates.some(d => isPeriodLocked(d))) {
-        alert("Cannot unmatch in closed period.");
-        return;
-    }
-    saveCheckpoint();
-    setTransactions(prev => prev.map(t => t.matchId === matchId ? { ...t, status: TransactionStatus.Unmatched, matchId: undefined } : t));
-    setMatches(prev => prev.filter(m => m.id !== matchId));
-    addAuditLog("Unmatch", `Unmatched group #${matchId}`);
-  };
-  const handleUpdateMatchComment = (matchId: string, newComment: string) => {
-    const match = matches.find(m => m.id === matchId);
-    if (!match) return;
-    const allDates = [...match.leftTransactions, ...match.rightTransactions].map(t => t.date);
-    if (allDates.some(d => isPeriodLocked(d))) {
-        alert("Cannot modify in closed period.");
-        return;
-    }
-    saveCheckpoint();
-    setMatches(prev => prev.map(m => m.id === matchId ? { ...m, comment: newComment } : m));
-    addAuditLog("Update", `Updated comment for match #${matchId}`);
-  };
-  const toggleSelect = (id: string, side: Side) => {
-      if (side === Side.Left) setSelectedLeftIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-      else setSelectedRightIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  };
-  const clearSelection = () => { setSelectedLeftIds(new Set()); setSelectedRightIds(new Set()); setMatchComment(""); setIsCommentOpen(false); };
-
-  // --- Batch ---
-  const toggleHistorySelect = (id: string) => { setSelectedHistoryIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
-  const toggleHistorySelectAll = () => { if (selectedHistoryIds.size === matches.length) setSelectedHistoryIds(new Set()); else setSelectedHistoryIds(new Set(matches.map(m => m.id))); };
-  const handleBatchUnmatch = () => {
-      if (!hasPermission(currentUser.role, 'unmatch_transactions')) { alert("Permission Denied."); return; }
-      const validMatchIds: string[] = [];
-      matches.forEach(m => { if (selectedHistoryIds.has(m.id) && !isPeriodLocked(m.leftTransactions[0].date)) validMatchIds.push(m.id); });
-      if (validMatchIds.length === 0) { alert("No valid matches selected."); return; }
-      saveCheckpoint();
-      setTransactions(prev => prev.map(t => (t.matchId && validMatchIds.includes(t.matchId)) ? { ...t, status: TransactionStatus.Unmatched, matchId: undefined } : t));
-      setMatches(prev => prev.filter(m => !validMatchIds.includes(m.id)));
-      setSelectedHistoryIds(new Set());
-      addAuditLog("Batch Unmatch", `Unmatched ${validMatchIds.length} groups.`);
-  };
-  const handleBatchApprove = () => {
-     if (!hasPermission(currentUser.role, 'approve_adjustments')) { alert("Permission Denied."); return; }
-     saveCheckpoint();
-     setMatches(prev => prev.map(m => (selectedHistoryIds.has(m.id) && m.status === 'PENDING_APPROVAL') ? { ...m, status: 'APPROVED', approvedBy: currentUser.name, approvedAt: Date.now() } : m));
-     setSelectedHistoryIds(new Set());
-     addAuditLog("Batch Approval", "Batch approved selected items.");
-  };
+  // Wrapper functions for hook actions
+  const handleUnmatch = (matchId: string) => reconciliationActions.handleUnmatch(matchId, currentUser, hasPermission, isPeriodLocked);
+  const handleUpdateMatchComment = (matchId: string, newComment: string) => reconciliationActions.handleUpdateMatchComment(matchId, newComment, isPeriodLocked);
+  const toggleSelect = (id: string, side: Side) => reconciliationActions.toggleSelect(id, side);
+  const clearSelection = () => reconciliationActions.clearSelection();
+  const toggleHistorySelect = (id: string) => reconciliationActions.toggleHistorySelect(id);
+  const toggleHistorySelectAll = () => reconciliationActions.toggleHistorySelectAll();
+  const handleBatchUnmatch = () => reconciliationActions.handleBatchUnmatch(currentUser, hasPermission, isPeriodLocked);
+  const handleBatchApprove = () => reconciliationActions.handleBatchApprove(currentUser, hasPermission);
 
   // --- Admin Logic Hooks (API Integrated) ---
   const handleAddUser = async (u: Omit<User, 'id'>) => { 
       if (!hasPermission(currentUser.role, 'manage_users')) return; 
       
-      saveCheckpoint();
+      reconciliationActions.saveCheckpoint();
       
       try {
           const res = await fetch('/api/admin/users', {
@@ -909,7 +384,7 @@ export const AnalyzerWebApp: React.FC = () => {
           
           const newUser = await res.json();
           setUsers(prev => [...prev, { ...newUser, role: newUser.role as UserRole }]);
-          addAuditLog("User Mgmt", `Created user ${u.name} via API`);
+          reconciliationActions.addAuditLog("User Mgmt", `Created user ${u.name} via API`);
       } catch (e: any) {
           alert(`Error: ${e.message}`);
       }
@@ -917,7 +392,7 @@ export const AnalyzerWebApp: React.FC = () => {
 
   const handleUpdateUser = async (u: User) => { 
       if (!hasPermission(currentUser.role, 'manage_users')) return; 
-      saveCheckpoint();
+      reconciliationActions.saveCheckpoint();
       
       try {
           const res = await fetch(`/api/admin/users/${u.id}`, {
@@ -929,7 +404,7 @@ export const AnalyzerWebApp: React.FC = () => {
           if (res.ok) {
             const updated = await res.json();
             setUsers(prev => prev.map(x => x.id === u.id ? { ...updated, role: updated.role as UserRole } : x));
-            addAuditLog("User Mgmt", `Updated user ${u.name} via API`);
+            reconciliationActions.addAuditLog("User Mgmt", `Updated user ${u.name} via API`);
             return;
           }
       } catch (e) {
@@ -939,13 +414,13 @@ export const AnalyzerWebApp: React.FC = () => {
 
   const handleDeleteUser = async (id: string) => { 
       if (!hasPermission(currentUser.role, 'manage_users')) return; 
-      saveCheckpoint();
+      reconciliationActions.saveCheckpoint();
       
       try {
           const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
           if (res.ok) {
               setUsers(prev => prev.filter(x => x.id !== id));
-              addAuditLog("User Mgmt", `Deleted user ID ${id} via API`);
+              reconciliationActions.addAuditLog("User Mgmt", `Deleted user ID ${id} via API`);
               return;
           }
       } catch (e) {
@@ -953,11 +428,11 @@ export const AnalyzerWebApp: React.FC = () => {
       }
   };
   
-  const handleUpdatePermissions = (r: UserRole, p: Permission[]) => { if (hasPermission(currentUser.role, 'manage_users')) { saveCheckpoint(); setRolePermissions(prev => ({...prev, [r]: p})); } };
-  const handleSetLockedDate = (d: string | null) => { if (hasPermission(currentUser.role, 'manage_periods')) { saveCheckpoint(); setLockedDate(d); } };
+  const handleUpdatePermissions = (r: UserRole, p: Permission[]) => { if (hasPermission(currentUser.role, 'manage_users')) { reconciliationActions.saveCheckpoint(); setRolePermissions(prev => ({...prev, [r]: p})); } };
+  const handleSetLockedDate = (d: string | null) => { if (hasPermission(currentUser.role, 'manage_periods')) { reconciliationActions.saveCheckpoint(); fileActions.setLockedDate(d); } };
   const handleApproveRoleRequest = (reqId: string, approve: boolean) => {
       if (!hasPermission(currentUser.role, 'manage_users')) return;
-      saveCheckpoint();
+      reconciliationActions.saveCheckpoint();
       setRoleRequests(prev => prev.map(r => r.id === reqId ? { ...r, status: approve ? 'APPROVED' : 'REJECTED' } : r));
       if (approve) {
           const req = roleRequests.find(r => r.id === reqId);
@@ -967,56 +442,56 @@ export const AnalyzerWebApp: React.FC = () => {
               if (targetUser) {
                   handleUpdateUser({ ...targetUser, role: req.requestedRole });
               }
-              addAuditLog("User Mgmt", `Approved role upgrade for ${req.userName}`);
+              reconciliationActions.addAuditLog("User Mgmt", `Approved role upgrade for ${req.userName}`);
           }
       }
   };
 
   const handlePreview = (scope: 'current' | 'workbook') => {
-    const selectedFile = importedFiles.find(f => f.id === selectedFileId);
-    const selectedSheet = availableSheets.find(s => s.id === selectedSheetId);
-    
+    const selectedFile = fileState.importedFiles.find(f => f.id === fileState.selectedFileId);
+    const selectedSheet = fileState.availableSheets.find(s => s.id === fileState.selectedSheetId);
+
     if (!selectedFile) {
       alert('File not found');
       return;
     }
-    
+
     // For preview, we only support current sheet (workbook preview would be too complex)
     if (scope === 'workbook') {
       alert('Preview is only available for current sheet. Workbook exports can be downloaded directly.');
       return;
     }
-    
+
     // Prepare transactions for preview
-    const unmatchedTxs = transactions.filter(t => t.status === TransactionStatus.Unmatched);
-    
+    const unmatchedTxs = reconciliationState.transactions.filter(t => t.status === TransactionStatus.Unmatched);
+
     const exportTransactions: ExportTransaction[] = unmatchedTxs.map(tx => ({
       ...tx,
       sheetName: selectedSheet?.name || '',
       fileName: selectedFile.filename,
-      sheetMetadata: sheetMetadata || {},
+      sheetMetadata: fileState.sheetMetadata || {},
     }));
-    
+
     // Prepare options
     const options = {
       scope: 'current' as const,
       fileName: selectedFile.filename,
       sheetName: selectedSheet?.name,
-      metadata: sheetMetadata || {},
+      metadata: fileState.sheetMetadata || {},
       reviewedBy: currentUser.name,
       sheetImport: {
         metaData: {
-          bankName: sheetMetadata?.['bank name'] || sheetMetadata?.['BANK NAME'] || '',
-          bankAccountNumber: sheetMetadata?.['BANK ACCOUNT NUMBER'] || '',
-          generalLedgerName: sheetMetadata?.['GENERAL LEDGER NAME'] || '',
-          generalLedgerNumber: sheetMetadata?.['GENERAL LEDGER NUMBER'] || '',
-          balancePerBankStatement: sheetMetadata?.['BALANCE PER BANK STATEMENT'] || 0,
-          internalAccountBalance: sheetMetadata?.['INTERNAL ACCOUNT BALANCE AS AT'] || 0,
+          bankName: fileState.sheetMetadata?.['bank name'] || fileState.sheetMetadata?.['BANK NAME'] || '',
+          bankAccountNumber: fileState.sheetMetadata?.['BANK ACCOUNT NUMBER'] || '',
+          generalLedgerName: fileState.sheetMetadata?.['GENERAL LEDGER NAME'] || '',
+          generalLedgerNumber: fileState.sheetMetadata?.['GENERAL LEDGER NUMBER'] || '',
+          balancePerBankStatement: fileState.sheetMetadata?.['BALANCE PER BANK STATEMENT'] || 0,
+          internalAccountBalance: fileState.sheetMetadata?.['INTERNAL ACCOUNT BALANCE AS AT'] || 0,
           reportingDate: selectedSheet?.reportingDate || '',
         }
       }
     };
-    
+
     setPreviewTransactions(exportTransactions);
     setPreviewOptions(options);
     setIsPreviewModalOpen(true);
@@ -1024,12 +499,12 @@ export const AnalyzerWebApp: React.FC = () => {
   
   const handleConfirmExportFromPreview = () => {
     setIsPreviewModalOpen(false);
-    
+
     // Execute the export with the same data
     if (previewTransactions.length > 0 && previewOptions) {
       exportCustomReconciliationReport(previewTransactions, previewOptions);
-      
-      addAuditLog(
+
+      reconciliationActions.addAuditLog(
         "Export",
         `Exported ${previewTransactions.length} unmatched transactions from sheet "${previewOptions.sheetName}" (Format: reconciliation)`
       );
@@ -1037,14 +512,19 @@ export const AnalyzerWebApp: React.FC = () => {
   };
 
 
-  // --- Render Calculation ---
-  const activeLeft = transactions.filter(t => t.side === Side.Left && t.status === TransactionStatus.Unmatched && t.description.toLowerCase().includes(leftFilter.toLowerCase()));
-  const activeRight = transactions.filter(t => t.side === Side.Right && t.status === TransactionStatus.Unmatched && t.description.toLowerCase().includes(rightFilter.toLowerCase()));
-  const totalMatchedValue = matches.reduce((acc, m) => acc + m.totalLeft, 0);
-  
-  const selectedLeftTxs = transactions.filter(t => selectedLeftIds.has(t.id));
-  const selectedRightTxs = transactions.filter(t => selectedRightIds.has(t.id));
-  
+
+  // Prevent flashing login content if loading, but handle unauthenticated explicitly
+  if (isLoadingSession || !fileState.isInitialized) return <div className="h-screen flex items-center justify-center text-gray-500">Loading {APP_NAME}...</div>;
+  if (!isAuthenticated) return null; // Middleware handles the redirect
+
+  // Computed values for rendering
+  const activeLeft = reconciliationState.transactions.filter(t => t.side === Side.Left && t.status === TransactionStatus.Unmatched && t.description.toLowerCase().includes(reconciliationState.leftFilter.toLowerCase()));
+  const activeRight = reconciliationState.transactions.filter(t => t.side === Side.Right && t.status === TransactionStatus.Unmatched && t.description.toLowerCase().includes(reconciliationState.rightFilter.toLowerCase()));
+  const totalMatchedValue = reconciliationState.matches.reduce((acc, m) => acc + m.totalLeft, 0);
+
+  const selectedLeftTxs = reconciliationState.transactions.filter(t => reconciliationState.selectedLeftIds.has(t.id));
+  const selectedRightTxs = reconciliationState.transactions.filter(t => reconciliationState.selectedRightIds.has(t.id));
+
   // Helper function to get actual amount (negative for DR transactions)
   const getActualAmount = (t: Transaction): number => {
     const recon = t.recon?.toUpperCase() || '';
@@ -1053,131 +533,67 @@ export const AnalyzerWebApp: React.FC = () => {
     }
     return Math.abs(t.amount); // CR transactions are positive
   };
-  
+
   const selLeftTotal = selectedLeftTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
   const selRightTotal = selectedRightTxs.reduce((sum, t) => sum + getActualAmount(t), 0);
   const diff = Math.abs(selLeftTotal + selRightTotal);
-  
+
   const canAccessAdmin = hasPermission(currentUser.role, 'view_admin_panel');
   const canUnmatch = hasPermission(currentUser.role, 'unmatch_transactions');
   const canApprove = hasPermission(currentUser.role, 'approve_adjustments');
 
-  // Prevent flashing login content if loading, but handle unauthenticated explicitly
-  if (isLoadingSession || !isInitialized) return <div className="h-screen flex items-center justify-center text-gray-500">Loading {APP_NAME}...</div>;
-  if (!isAuthenticated) return null; // Middleware handles the redirect
-
   return (
-    <div className="min-h-screen flex flex-col font-sans text-gray-900 bg-[#f8fafc]">
-      <ReconciliationReportPreviewModal
-        isOpen={isPreviewModalOpen}
-        onClose={() => setIsPreviewModalOpen(false)}
-        onConfirmExport={handleConfirmExportFromPreview}
-        transactions={previewTransactions}
-        options={previewOptions || {}}
-      />
-      <AuditLogModal isOpen={isAuditModalOpen} onClose={() => setIsAuditModalOpen(false)} logs={auditLog} currentUser={currentUser} />
-      <SnapshotHistoryModal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} snapshots={snapshots} onRestore={restoreSnapshot} users={users} />
-      <ExportScopeModal
-        isOpen={isExportModalOpen}
-        onClose={() => setIsExportModalOpen(false)}
-        onExport={executeExport}
-        onPreview={handlePreview}
-        currentSheetName={availableSheets.find(s => s.id === selectedSheetId)?.name || ''}
-        currentSheetUnmatchedCount={transactions.filter(t => t.status === TransactionStatus.Unmatched).length}
-        workbookName={importedFiles.find(f => f.id === selectedFileId)?.filename || ''}
-        totalSheetsCount={availableSheets.length}
-        totalWorkbookUnmatchedCount={undefined}
-      />
-
-      {/* Role Request Modal */}
-      {isRoleRequestOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-           <div className="bg-white rounded-lg p-6 max-w-sm w-full shadow-xl">
-              <h3 className="font-bold text-lg mb-2">Request Role Upgrade</h3>
-              <p className="text-sm text-gray-500 mb-4">Request upgrade to Manager permissions.</p>
-              <textarea 
-                className="w-full border p-2 rounded mb-4 text-sm" 
-                placeholder="Reason for request..."
-                rows={3}
-                value={roleRequestReason}
-                onChange={e => setRoleRequestReason(e.target.value)}
-              />
-              <div className="flex justify-end gap-2">
-                 <button onClick={() => setIsRoleRequestOpen(false)} className="px-4 py-2 text-sm text-gray-600">Cancel</button>
-                 <button onClick={handleRoleRequest} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded">Submit</button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('workspace')}>
-              <img src="/logos/arbutus_logo-24x25.png" alt="Arbutus" className="w-6 h-6" />
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">{APP_NAME}</h1>
-            </div>
-            {canAccessAdmin && (
-              <div className="flex bg-gray-100 rounded-lg p-1 gap-1">
-                <button onClick={() => setCurrentView('workspace')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${currentView === 'workspace' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Workspace</button>
-                <button onClick={() => setCurrentView('import')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${currentView === 'import' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><Upload size={14} />Import</button>
-                <button onClick={() => setCurrentView('sync')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${currentView === 'sync' ? 'bg-white shadow text-green-600' : 'text-gray-500 hover:text-gray-700'}`}><FolderSync size={14} />Folder Sync</button>
-                <button onClick={() => setCurrentView('admin')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${currentView === 'admin' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><LayoutDashboard size={14} />Admin</button>
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-             <div className="relative mr-4 border-r border-gray-200 pr-4">
-               <button onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} className="flex items-center gap-2 hover:bg-gray-50 p-1.5 rounded-lg transition-colors">
-                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${currentUser.role === UserRole.Admin ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{currentUser.avatar}</div>
-                 <div className="text-left hidden sm:block">
-                    <p className="text-sm font-medium text-gray-700 leading-none">{currentUser.name}</p>
-                    <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide pt-0.5">{currentUser.role}</p>
-                 </div>
-                 <ChevronDown size={14} className="text-gray-400" />
-               </button>
-               {isUserMenuOpen && (
-                 <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 py-1 z-50">
-                   <div className="px-4 py-2 border-b border-gray-100 bg-gray-50"><p className="text-xs text-gray-500 font-semibold uppercase">Account</p></div>
-                   {currentUser.role === UserRole.Analyst && (
-                       <button onClick={() => { setIsUserMenuOpen(false); setIsRoleRequestOpen(true); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                           <UserPlus size={14} /> Request Access
-                       </button>
-                   )}
-                   <div className="border-t border-gray-100 mt-1 pt-1">
-                      <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><LogOut size={14} />Sign Out</button>
-                   </div>
-                 </div>
-               )}
-            </div>
-
-            {/* Toolbar */}
-            {currentView === 'workspace' && (
-              <>
-                <div className="flex items-center gap-1 mr-4 border-r border-gray-200 pr-4">
-                   <button onClick={undo} disabled={historyStack.length===0} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors"><RotateCcw size={18} /></button>
-                   <button onClick={redo} disabled={futureStack.length===0} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors"><RotateCw size={18} /></button>
-                   <div className="w-px h-6 bg-gray-200 mx-1"></div>
-                   <button onClick={() => setIsHistoryModalOpen(true)} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors"><History size={18} /></button>
-                   <button onClick={handleManualSnapshot} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors"><Save size={18} /></button>
-                   <button onClick={() => setIsAuditModalOpen(true)} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors"><FileText size={18} /></button>
-                   <button onClick={handleExport} disabled={!selectedSheetId} className="p-2 rounded-md hover:bg-gray-100 text-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Export Unmatched Transactions"><Download size={18} /></button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* Main Area */}
+    <ReconciliationLayout
+      currentView={currentView}
+      currentUser={currentUser}
+      canAccessAdmin={canAccessAdmin}
+      isUserMenuOpen={isUserMenuOpen}
+      isRoleRequestOpen={isRoleRequestOpen}
+      roleRequestReason={roleRequestReason}
+      onViewChange={setCurrentView}
+      onUserMenuToggle={() => setIsUserMenuOpen(!isUserMenuOpen)}
+      onRoleRequestToggle={() => setIsRoleRequestOpen(!isRoleRequestOpen)}
+      onRoleRequestSubmit={handleRoleRequest}
+      onRoleRequestReasonChange={setRoleRequestReason}
+      onLogout={handleLogout}
+      historyStackLength={reconciliationState.historyStack.length}
+      futureStackLength={reconciliationState.futureStack.length}
+      selectedSheetId={fileState.selectedSheetId}
+      onUndo={reconciliationActions.undo}
+      onRedo={reconciliationActions.redo}
+      onHistoryModalOpen={() => setIsHistoryModalOpen(true)}
+      onManualSnapshot={reconciliationActions.handleManualSnapshot}
+      onAuditModalOpen={() => setIsAuditModalOpen(true)}
+      onExport={handleExport}
+      isPreviewModalOpen={isPreviewModalOpen}
+      onPreviewModalClose={() => setIsPreviewModalOpen(false)}
+      onConfirmExportFromPreview={handleConfirmExportFromPreview}
+      previewTransactions={previewTransactions}
+      previewOptions={previewOptions}
+      isAuditModalOpen={isAuditModalOpen}
+      onAuditModalClose={() => setIsAuditModalOpen(false)}
+      auditLogs={reconciliationState.auditLog}
+      isHistoryModalOpen={isHistoryModalOpen}
+      onHistoryModalClose={() => setIsHistoryModalOpen(false)}
+      snapshots={reconciliationState.snapshots}
+      onRestoreSnapshot={reconciliationActions.restoreSnapshot}
+      users={users}
+      isExportModalOpen={isExportModalOpen}
+      onExportModalClose={() => setIsExportModalOpen(false)}
+      onExecuteExport={executeExport}
+      onPreview={handlePreview}
+      currentSheetName={fileState.availableSheets.find(s => s.id === fileState.selectedSheetId)?.name || ''}
+      currentSheetUnmatchedCount={reconciliationState.transactions.filter(t => t.status === TransactionStatus.Unmatched).length}
+      workbookName={fileState.importedFiles.find(f => f.id === fileState.selectedFileId)?.filename || ''}
+      totalSheetsCount={fileState.availableSheets.length}
+      totalWorkbookUnmatchedCount={undefined}
+    >
       {currentView === 'admin' && canAccessAdmin ? (
-        <AdminDashboard 
-          users={users} 
-          onAddUser={handleAddUser} onUpdateUser={handleUpdateUser} onDeleteUser={handleDeleteUser} 
-          currentUser={currentUser} auditLogs={auditLog} rolePermissions={rolePermissions} onUpdatePermissions={handleUpdatePermissions}
-          lockedDate={lockedDate} onSetLockedDate={handleSetLockedDate}
+        <AdminDashboard
+          users={users}
+          onAddUser={handleAddUser} onUpdateUser={handleUpdateUser} onDeleteUser={handleDeleteUser}
+          currentUser={currentUser} auditLogs={reconciliationState.auditLog} rolePermissions={rolePermissions} onUpdatePermissions={handleUpdatePermissions}
+          lockedDate={fileState.lockedDate} onSetLockedDate={handleSetLockedDate}
           roleRequests={roleRequests} onApproveRoleRequest={handleApproveRoleRequest}
         />
       ) : currentView === 'import' ? (
@@ -1191,133 +607,53 @@ export const AnalyzerWebApp: React.FC = () => {
           </div>
         </div>
       ) : (
-        <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
-          {/* File and Sheet Selection Panel */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-start justify-between gap-6">
-              {/* Left: File & Sheet Selectors */}
-              <div className="flex-1 space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Select Import File
-                  </label>
-                  <select
-                    value={selectedFileId}
-                    onChange={(e) => handleFileChange(e.target.value)}
-                    className="w-full bg-white border border-gray-300 rounded-lg text-sm px-4 py-2.5 text-gray-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                  >
-                    <option value="">-- Select a file --</option>
-                    {importedFiles.map(file => (
-                      <option key={file.id} value={file.id}>
-                        {file.filename} ({file.sheetCount} sheets, {file.totalTransactions} transactions)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                
-                {availableSheets.length > 0 && (
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Select Sheet
-                    </label>
-                    <select
-                      value={selectedSheetId}
-                      onChange={(e) => handleSheetChange(e.target.value)}
-                      disabled={isLoading}
-                      className="w-full bg-white border border-gray-300 rounded-lg text-sm px-4 py-2.5 text-gray-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <option value="">-- Select a sheet --</option>
-                      {availableSheets.map(sheet => (
-                        <option key={sheet.id} value={sheet.id}>
-                          {sheet.name} - {sheet.reportingDate} ({sheet.transactionCount} transactions)
-                        </option>
-                      ))}
-                    </select>
-                    
-                    {isLoading && (
-                      <div className="flex items-center gap-2 mt-2 text-sm text-indigo-600">
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Loading sheet data...</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              
-              {/* Right: Sheet Metadata */}
-              {sheetMetadata && Object.keys(sheetMetadata).length > 0 && (
-                <div className="flex-1 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-lg p-4 border border-indigo-100">
-                  <h3 className="text-sm font-bold text-indigo-900 mb-3 flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    Sheet Metadata
-                  </h3>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                    {Object.entries(sheetMetadata).map(([key, value]) => (
-                      <div key={key} className="text-xs">
-                        <span className="font-semibold text-gray-600">{key}:</span>
-                        <span className="ml-2 text-gray-900">{value || 'N/A'}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-          
-          {/* Only show data when a sheet is selected */}
-          {selectedSheetId ? (
-            <>
-              {/* Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-blue-50 rounded-full text-blue-600"><Activity size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Left Unmatched</p><p className="text-xl font-bold text-gray-800">{activeLeft.length}</p></div></div>
-                  <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-green-50 rounded-full text-green-600"><Activity size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Right Unmatched</p><p className="text-xl font-bold text-gray-800">{activeRight.length}</p></div></div>
-                  <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-indigo-50 rounded-full text-indigo-600"><TrendingUp size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Total Matches</p><p className="text-xl font-bold text-gray-800">{matches.length}</p></div></div>
-                  <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center gap-4"><div className="p-3 bg-purple-50 rounded-full text-purple-600"><DollarSign size={20} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">Matched Value</p><p className="text-xl font-bold text-gray-800">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalMatchedValue)}</p></div></div>
-              </div>
-              <div className="flex flex-row gap-6 h-[85vh]">
-                  <div className="w-1/2 h-full"><TransactionTable title="Internal Ledger (A)" transactions={activeLeft} selectedIds={selectedLeftIds} onToggleSelect={(id) => toggleSelect(id, Side.Left)} side={Side.Left} className="h-full" filterText={leftFilter} onFilterChange={setLeftFilter} metadata={sheetMetadata}/></div>
-                  <div className="w-1/2 h-full"><TransactionTable title="Bank Statement (B)" transactions={activeRight} selectedIds={selectedRightIds} onToggleSelect={(id) => toggleSelect(id, Side.Right)} side={Side.Right} className="h-full" filterText={rightFilter} onFilterChange={setRightFilter} metadata={sheetMetadata}/></div>
-              </div>
-              <div className="w-full pb-36"><HistoryPanel matches={matches} onUnmatch={handleUnmatch} currentUser={currentUser} canUnmatch={canUnmatch} canApprove={canApprove} onApprove={handleApproveMatch} lockedDate={lockedDate} selectedIds={selectedHistoryIds} onToggleSelect={toggleHistorySelect} onToggleSelectAll={toggleHistorySelectAll} onBatchUnmatch={handleBatchUnmatch} onBatchApprove={handleBatchApprove} onUpdateComment={handleUpdateMatchComment}/></div>
-            </>
-          ) : (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
-              <div className="max-w-md mx-auto">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <FileText className="w-8 h-8 text-gray-400" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Sheet Selected</h3>
-                <p className="text-sm text-gray-500">
-                  Please select an imported file and sheet from the dropdowns above to view transaction data and perform reconciliation.
-                </p>
-              </div>
-            </div>
-          )}
-        </main>
+        <WorkspaceContainer
+          importedFiles={fileState.importedFiles}
+          selectedFileId={fileState.selectedFileId}
+          availableSheets={fileState.availableSheets}
+          selectedSheetId={fileState.selectedSheetId}
+          isLoading={fileState.isLoading}
+          sheetMetadata={fileState.sheetMetadata}
+          onFileChange={fileActions.handleFileChange}
+          onSheetChange={(sheetId) => fileActions.handleSheetChange(sheetId, currentUser, reconciliationActions.setTransactions, reconciliationActions.setSelectedLeftIds, reconciliationActions.setSelectedRightIds, reconciliationActions.setSelectedHistoryIds, reconciliationActions.setMatches, reconciliationActions.setMatchComment, reconciliationActions.setHistoryStack, reconciliationActions.setFutureStack, reconciliationActions.createSnapshot, reconciliationActions.addAuditLog, isPeriodLocked)}
+          transactions={reconciliationState.transactions}
+          matches={reconciliationState.matches}
+          selectedLeftIds={reconciliationState.selectedLeftIds}
+          selectedRightIds={reconciliationState.selectedRightIds}
+          selectedHistoryIds={reconciliationState.selectedHistoryIds}
+          leftFilter={reconciliationState.leftFilter}
+          rightFilter={reconciliationState.rightFilter}
+          matchComment={reconciliationState.matchComment}
+          isCommentOpen={reconciliationState.isCommentOpen}
+          currentUser={currentUser}
+          canUnmatch={canUnmatch}
+          canApprove={canApprove}
+          onToggleSelect={reconciliationActions.toggleSelect}
+          onFilterChange={(side, filter) => {
+            if (side === Side.Left) reconciliationActions.setLeftFilter(filter);
+            else reconciliationActions.setRightFilter(filter);
+          }}
+          onExecuteMatch={() => reconciliationActions.executeMatch(currentUser, hasPermission, isPeriodLocked)}
+          onClearSelection={reconciliationActions.clearSelection}
+          onToggleComment={() => reconciliationActions.setIsCommentOpen(!reconciliationState.isCommentOpen)}
+          onCommentChange={reconciliationActions.setMatchComment}
+          onUnmatch={handleUnmatch}
+          onApprove={(matchId) => reconciliationActions.handleApproveMatch(matchId, currentUser, hasPermission)}
+          onToggleHistorySelect={reconciliationActions.toggleHistorySelect}
+          onToggleHistorySelectAll={reconciliationActions.toggleHistorySelectAll}
+          onBatchUnmatch={handleBatchUnmatch}
+          onBatchApprove={handleBatchApprove}
+          onUpdateMatchComment={handleUpdateMatchComment}
+          activeLeft={activeLeft}
+          activeRight={activeRight}
+          totalMatchedValue={totalMatchedValue}
+          selectedLeftTxs={selectedLeftTxs}
+          selectedRightTxs={selectedRightTxs}
+          selLeftTotal={selLeftTotal}
+          selRightTotal={selRightTotal}
+          diff={diff}
+        />
       )}
-
-      {/* Sticky Action Bar */}
-      {currentView === 'workspace' && (
-        <div className={`fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-white rounded-xl shadow-2xl border border-gray-200 px-6 py-4 flex items-center gap-6 z-50 transition-all duration-300 w-[95%] max-w-5xl ${(selectedLeftIds.size > 0 || selectedRightIds.size > 0) ? 'translate-y-0 opacity-100' : 'translate-y-32 opacity-0 pointer-events-none'}`}>
-          <button onClick={clearSelection} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><X size={20} /></button>
-          <div className="h-8 w-px bg-gray-200" />
-          <div className="flex items-center gap-8 flex-1">
-            <div className="flex flex-col"><div className="flex items-center gap-2"><span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Source A</span><span className="text-xs font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{selectedLeftIds.size}</span></div><span className="font-mono text-lg font-medium text-blue-600 leading-tight">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(selLeftTotal)}</span></div>
-            <div className="text-gray-300"><ArrowRightLeft size={20} /></div>
-            <div className="flex flex-col"><div className="flex items-center gap-2"><span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Source B</span><span className="text-xs font-semibold bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{selectedRightIds.size}</span></div><span className="font-mono text-lg font-medium text-green-600 leading-tight">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(selRightTotal)}</span></div>
-            <div className={`flex flex-col px-6 border-l border-gray-100 ${Math.abs(diff) < 0.01 ? 'text-gray-400' : 'text-red-500'}`}><span className="text-[10px] uppercase font-bold tracking-wider">Difference</span><span className="font-mono text-lg font-bold flex items-center gap-2 leading-tight">{diff > 0.01 && <AlertTriangle size={16} />}{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(diff)}</span>{diff > 0 && diff <= WRITE_OFF_LIMIT && <span className="text-[10px] text-green-600 font-medium">Auto-writeoff</span>}</div>
-          </div>
-          <div className="flex items-center gap-3">
-             <div className="relative">
-               <button onClick={() => setIsCommentOpen(!isCommentOpen)} className={`p-2 rounded-lg transition-colors relative ${matchComment ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}><MessageCircle size={20} />{matchComment && <span className="absolute top-1 right-1 w-2 h-2 bg-indigo-600 rounded-full border border-white"></span>}</button>
-               {isCommentOpen && <div className="absolute bottom-full right-0 mb-3 w-64 bg-white rounded-lg shadow-xl border border-gray-200 p-3 z-50 animate-fadeIn"><label className="block text-xs font-semibold text-gray-700 mb-1">Match Notes</label><textarea className="w-full text-sm p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none resize-none" rows={3} placeholder="Rationale..." value={matchComment} onChange={(e) => setMatchComment(e.target.value)} autoFocus /><div className="text-right mt-1"><button onClick={() => setIsCommentOpen(false)} className="text-xs text-indigo-600 font-medium hover:text-indigo-800">Done</button></div></div>}
-             </div>
-             <button onClick={executeMatch} disabled={selectedLeftIds.size===0 && selectedRightIds.size===0} className="flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold text-sm bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg transition-all">
-                {diff > 0.01 ? (diff > ROLE_ADJUSTMENT_LIMITS[currentUser.role] ? <><ShieldAlert size={18} />Request Approval</> : <><CheckCircle size={18} />Match w/ Adjust</>) : <><Link2 size={18} />Match Selected</>}
-             </button>
-          </div>
-        </div>
-      )}
-    </div>
+    </ReconciliationLayout>
   );
 };

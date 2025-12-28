@@ -4,17 +4,17 @@ import React from 'react';
 import { Activity, TrendingUp, DollarSign } from 'lucide-react';
 
 interface ReconciliationStatsProps {
-  activeLeft: number;
-  activeRight: number;
+  leftUnmatchedCount: number;
+  rightUnmatchedCount: number;
   totalMatches: number;
-  totalMatchedValue: number;
+  matchedValue: number;
 }
 
 export const ReconciliationStats: React.FC<ReconciliationStatsProps> = ({
-  activeLeft,
-  activeRight,
+  leftUnmatchedCount,
+  rightUnmatchedCount,
   totalMatches,
-  totalMatchedValue,
+  matchedValue,
 }) => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -24,7 +24,7 @@ export const ReconciliationStats: React.FC<ReconciliationStatsProps> = ({
         </div>
         <div>
           <p className="text-xs text-gray-500 uppercase font-semibold">Left Unmatched</p>
-          <p className="text-xl font-bold text-gray-800">{activeLeft}</p>
+          <p className="text-xl font-bold text-gray-800">{leftUnmatchedCount}</p>
         </div>
       </div>
 
@@ -34,7 +34,7 @@ export const ReconciliationStats: React.FC<ReconciliationStatsProps> = ({
         </div>
         <div>
           <p className="text-xs text-gray-500 uppercase font-semibold">Right Unmatched</p>
-          <p className="text-xl font-bold text-gray-800">{activeRight}</p>
+          <p className="text-xl font-bold text-gray-800">{rightUnmatchedCount}</p>
         </div>
       </div>
 
@@ -55,7 +55,7 @@ export const ReconciliationStats: React.FC<ReconciliationStatsProps> = ({
         <div>
           <p className="text-xs text-gray-500 uppercase font-semibold">Matched Value</p>
           <p className="text-xl font-bold text-gray-800">
-            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalMatchedValue)}
+            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(matchedValue)}
           </p>
         </div>
       </div>

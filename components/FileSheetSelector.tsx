@@ -8,21 +8,19 @@ interface ImportedFile {
   filename: string;
   sheetCount: number;
   totalTransactions: number;
-  sheets?: Sheet[];
-}
-
-interface Sheet {
-  id: string;
-  name: string;
-  reportingDate: string;
-  transactionCount: number;
+  sheets?: Array<{
+    id: string;
+    name: string;
+    reportingDate?: string;
+    transactionCount: number;
+  }>;
 }
 
 interface FileSheetSelectorProps {
   importedFiles: ImportedFile[];
   selectedFileId: string;
+  availableSheets: ImportedFile['sheets'];
   selectedSheetId: string;
-  availableSheets: Sheet[];
   isLoading: boolean;
   sheetMetadata: Record<string, any> | null;
   onFileChange: (fileId: string) => void;
@@ -32,8 +30,8 @@ interface FileSheetSelectorProps {
 export const FileSheetSelector: React.FC<FileSheetSelectorProps> = ({
   importedFiles,
   selectedFileId,
-  selectedSheetId,
   availableSheets,
+  selectedSheetId,
   isLoading,
   sheetMetadata,
   onFileChange,
@@ -62,7 +60,7 @@ export const FileSheetSelector: React.FC<FileSheetSelectorProps> = ({
             </select>
           </div>
 
-          {availableSheets.length > 0 && (
+          {availableSheets && availableSheets.length > 0 && (
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Select Sheet
