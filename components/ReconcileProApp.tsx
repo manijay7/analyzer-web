@@ -744,7 +744,7 @@ export const AnalyzerWebApp: React.FC = () => {
             fileName: selectedFile.filename,
             sheetName: selectedSheet?.name,
             metadata: sheetMetadata || {},
-            preparedBy: currentUser.name, // Pass the current user's name
+            reviewedBy: currentUser.name, // Current user is reviewing/exporting
             sheetImport: {
               metaData: {
                 bankName: sheetMetadata?.['bank name'] || sheetMetadata?.['BANK NAME'] || '',
@@ -752,6 +752,7 @@ export const AnalyzerWebApp: React.FC = () => {
                 generalLedgerName: sheetMetadata?.['GENERAL LEDGER NAME'] || '',
                 generalLedgerNumber: sheetMetadata?.['GENERAL LEDGER NUMBER'] || '',
                 balancePerBankStatement: sheetMetadata?.['BALANCE PER BANK STATEMENT'] || 0,
+                internalAccountBalance: sheetMetadata?.['INTERNAL ACCOUNT BALANCE AS AT'] || 0,
                 reportingDate: selectedSheet?.reportingDate || '',
               }
             }
@@ -797,7 +798,7 @@ export const AnalyzerWebApp: React.FC = () => {
             scope: 'workbook',
             fileName: selectedFile.filename,
             metadata: sheetMetadata || {},
-            preparedBy: currentUser.name, // Pass the current user's name
+            reviewedBy: currentUser.name, // Current user is reviewing/exporting
             sheetImport: {
               metaData: {
                 bankName: sheetMetadata?.['GENERAL LEDGER NAME'] || sheetMetadata?.['BANK NAME'] || '',

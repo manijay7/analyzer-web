@@ -6,7 +6,8 @@ export interface ReconciliationReportOptions {
   fileName: string;
   sheetName?: string;
   metadata?: Record<string, any>;
-  preparedBy?: string; // Name of the user who prepared the report
+  preparedBy?: string; // Name of the user who prepared the report (from sheet metadata)
+  reviewedBy?: string; // Name of the current user who is reviewing/exporting the report
   sheetImport?: {
     metaData?: {
       bankName?: string;
@@ -421,7 +422,7 @@ export function generateCustomReconciliationReport(
   lines.push(",,,,,");
 
   // Build dynamic formula: Bank Balance + Total Int DR - Total Ext DR + Total Ext CR - Total Int CR
-  const grandTotalFormula = `=ABS(E${balanceRow}+E${intDrTotalRow}-E${extDrTotalRow}+E${extCrTotalRow}-E${intCrTotalRow})`;
+  const grandTotalFormula = `=ABS(E${balanceRow}+E${intDrTotalRow}-E${intCrTotalRow}+E${extDrTotalRow}-E${extCrTotalRow})`;
 
   // Row 41: Grand total header
   const grandTotalRow = currentRow + 2;
@@ -442,18 +443,21 @@ export function generateCustomReconciliationReport(
 
   lines.push(",,,,,");
 
-  // Row n: Prepared by
+  // Row n: Prepared by (from sheet metadata - who originally prepared it)
   const preparedBy =
-    options.preparedBy ||
+    metadata["PREPARED BY:"] ||
     metadata["PREPARED BY"] ||
+    sheetImportMeta["PREPARED BY:"] ||
     sheetImportMeta["PREPARED BY"] ||
-    "Unknown User";
+    sheetImportMeta.preparedBy ||
+    "Unknown";
   lines.push(`,,,PREPARED BY:,${escapeCSV(preparedBy)},DATE,${reportingDate},`);
 
   lines.push(",,,,,");
 
-  // Row n: Reviewed by
-  lines.push(`,,,REVIEWED BY:,,DATE,${reportingDate},`);
+  // Row n: Reviewed by (current user who is exporting/reviewing)
+  const reviewedBy = options.reviewedBy || "";
+  lines.push(`,,,REVIEWED BY:,${escapeCSV(reviewedBy)},DATE,${reportingDate},`);
 
   return lines.join("\r\n") + "\r\n";
 }
