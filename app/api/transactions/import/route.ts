@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse Excel file with sheet filtering
-    const transactionSets = parseExcelFile(buffer, file.name);
+    const transactionSets = await parseExcelFile(buffer, file.name);
 
     if (transactionSets.length === 0) {
       return NextResponse.json(

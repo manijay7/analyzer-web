@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { enforceEnvironmentValidation } from "@/lib/env-validation";
 
 // Validate environment configuration at application startup
@@ -27,9 +28,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <Providers>
-          {children}
-        </Providers>
+        <ErrorBoundary>
+          <Providers>
+            {children}
+          </Providers>
+        </ErrorBoundary>
       </body>
     </html>
   );

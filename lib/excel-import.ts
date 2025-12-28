@@ -1,5 +1,5 @@
 // Shared Excel import utilities
-import * as XLSX from "xlsx";
+import * as ExcelJS from "exceljs";
 import crypto from "crypto";
 
 // Type definitions for imported transaction data
@@ -33,16 +33,13 @@ export interface TransactionSet {
 }
 
 // Check if sheet contains "dept" in cells A1:D10
-export function isValidAccountSheet(worksheet: XLSX.WorkSheet): boolean {
-  const range = { s: { c: 0, r: 0 }, e: { c: 3, r: 9 } }; // A1:D10
-
-  for (let row = range.s.r; row <= range.e.r; row++) {
-    for (let col = range.s.c; col <= range.e.c; col++) {
-      const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
-      const cell = worksheet[cellAddress];
-
-      if (cell && cell.v) {
-        const cellValue = String(cell.v).toLowerCase();
+export function isValidAccountSheet(worksheet: ExcelJS.Worksheet): boolean {
+  // Check cells A1:D10 (rows 1-10, columns 1-4)
+  for (let row = 1; row <= 10; row++) {
+    for (let col = 1; col <= 4; col++) {
+      const cell = worksheet.getCell(row, col);
+      if (cell.value) {
+        const cellValue = String(cell.value).toLowerCase();
         if (cellValue.includes("dept")) {
           return true;
         }
@@ -285,16 +282,17 @@ export function parseSheetData(jsonData: any[][], sheetName: string) {
 }
 
 // Parse Excel file into transaction sets
-export function parseExcelFile(
+export async function parseExcelFile(
   buffer: Buffer,
   fileName: string
-): TransactionSet[] {
+): Promise<TransactionSet[]> {
   try {
-    const workbook = XLSX.read(buffer, { type: "buffer" });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
     const transactionSets: TransactionSet[] = [];
 
-    workbook.SheetNames.forEach((sheetName, index) => {
-      const worksheet = workbook.Sheets[sheetName];
+    workbook.worksheets.forEach((worksheet, index) => {
+      const sheetName = worksheet.name;
 
       // Filter sheets: only process sheets containing "dept" in A1:D10
       if (!isValidAccountSheet(worksheet)) {
@@ -307,10 +305,13 @@ export function parseExcelFile(
       console.log(`[Import] Processing valid account sheet: "${sheetName}"`);
 
       // Convert sheet to 2D array (preserves structure for metadata extraction)
-      const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, {
-        header: 1,
-        raw: false,
-        defval: "",
+      const jsonData: any[][] = [];
+      worksheet.eachRow((row, rowNumber) => {
+        const rowData: any[] = [];
+        row.eachCell((cell, colNumber) => {
+          rowData.push(cell.value || "");
+        });
+        jsonData.push(rowData);
       });
 
       if (jsonData.length === 0) return;
