@@ -9,6 +9,7 @@ import { AuditLogModal } from './AuditLogModal';
 import { AdminDashboard } from './AdminDashboard';
 import { SnapshotHistoryModal } from './SnapshotHistoryModal';
 import { ExportScopeModal, ExportFormat } from './ExportScopeModal';
+import { ReconciliationReportPreviewModal } from './ReconciliationReportPreviewModal';
 import { WRITE_OFF_LIMIT, DATE_WARNING_THRESHOLD_DAYS, DEFAULT_ROLE_PERMISSIONS, STORAGE_KEY, APP_NAME, ROLE_ADJUSTMENT_LIMITS, IDLE_TIMEOUT_MS } from '@/lib/constants';
 import { TransactionImportWorkspace } from './TransactionImportWorkspace';
 import { FolderSyncManager } from './FolderSyncManager';
@@ -95,6 +96,9 @@ export const AnalyzerWebApp: React.FC = () => {
   // UI State
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const [previewTransactions, setPreviewTransactions] = useState<ExportTransaction[]>([]);
+  const [previewOptions, setPreviewOptions] = useState<any>(null);
 
   // --- Derived User Object from Session ---
   // Default to a fallback object if needed for types, but logic is guarded by isAuthenticated
@@ -968,6 +972,70 @@ export const AnalyzerWebApp: React.FC = () => {
       }
   };
 
+  const handlePreview = (scope: 'current' | 'workbook') => {
+    const selectedFile = importedFiles.find(f => f.id === selectedFileId);
+    const selectedSheet = availableSheets.find(s => s.id === selectedSheetId);
+    
+    if (!selectedFile) {
+      alert('File not found');
+      return;
+    }
+    
+    // For preview, we only support current sheet (workbook preview would be too complex)
+    if (scope === 'workbook') {
+      alert('Preview is only available for current sheet. Workbook exports can be downloaded directly.');
+      return;
+    }
+    
+    // Prepare transactions for preview
+    const unmatchedTxs = transactions.filter(t => t.status === TransactionStatus.Unmatched);
+    
+    const exportTransactions: ExportTransaction[] = unmatchedTxs.map(tx => ({
+      ...tx,
+      sheetName: selectedSheet?.name || '',
+      fileName: selectedFile.filename,
+      sheetMetadata: sheetMetadata || {},
+    }));
+    
+    // Prepare options
+    const options = {
+      scope: 'current' as const,
+      fileName: selectedFile.filename,
+      sheetName: selectedSheet?.name,
+      metadata: sheetMetadata || {},
+      reviewedBy: currentUser.name,
+      sheetImport: {
+        metaData: {
+          bankName: sheetMetadata?.['bank name'] || sheetMetadata?.['BANK NAME'] || '',
+          bankAccountNumber: sheetMetadata?.['BANK ACCOUNT NUMBER'] || '',
+          generalLedgerName: sheetMetadata?.['GENERAL LEDGER NAME'] || '',
+          generalLedgerNumber: sheetMetadata?.['GENERAL LEDGER NUMBER'] || '',
+          balancePerBankStatement: sheetMetadata?.['BALANCE PER BANK STATEMENT'] || 0,
+          internalAccountBalance: sheetMetadata?.['INTERNAL ACCOUNT BALANCE AS AT'] || 0,
+          reportingDate: selectedSheet?.reportingDate || '',
+        }
+      }
+    };
+    
+    setPreviewTransactions(exportTransactions);
+    setPreviewOptions(options);
+    setIsPreviewModalOpen(true);
+  };
+  
+  const handleConfirmExportFromPreview = () => {
+    setIsPreviewModalOpen(false);
+    
+    // Execute the export with the same data
+    if (previewTransactions.length > 0 && previewOptions) {
+      exportCustomReconciliationReport(previewTransactions, previewOptions);
+      
+      addAuditLog(
+        "Export",
+        `Exported ${previewTransactions.length} unmatched transactions from sheet "${previewOptions.sheetName}" (Format: reconciliation)`
+      );
+    }
+  };
+
 
   // --- Render Calculation ---
   const activeLeft = transactions.filter(t => t.side === Side.Left && t.status === TransactionStatus.Unmatched && t.description.toLowerCase().includes(leftFilter.toLowerCase()));
@@ -1000,12 +1068,20 @@ export const AnalyzerWebApp: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col font-sans text-gray-900 bg-[#f8fafc]">
+      <ReconciliationReportPreviewModal
+        isOpen={isPreviewModalOpen}
+        onClose={() => setIsPreviewModalOpen(false)}
+        onConfirmExport={handleConfirmExportFromPreview}
+        transactions={previewTransactions}
+        options={previewOptions || {}}
+      />
       <AuditLogModal isOpen={isAuditModalOpen} onClose={() => setIsAuditModalOpen(false)} logs={auditLog} currentUser={currentUser} />
       <SnapshotHistoryModal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} snapshots={snapshots} onRestore={restoreSnapshot} users={users} />
       <ExportScopeModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         onExport={executeExport}
+        onPreview={handlePreview}
         currentSheetName={availableSheets.find(s => s.id === selectedSheetId)?.name || ''}
         currentSheetUnmatchedCount={transactions.filter(t => t.status === TransactionStatus.Unmatched).length}
         workbookName={importedFiles.find(f => f.id === selectedFileId)?.filename || ''}

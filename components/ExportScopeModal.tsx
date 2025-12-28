@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { X, FileText, FolderOpen, Download, AlertCircle, Loader2 } from 'lucide-react';
+import { X, FileText, FolderOpen, Download, AlertCircle, Loader2, Eye } from 'lucide-react';
 
 export type ExportFormat = 'csv' | 'reconciliation';
 
@@ -9,6 +9,7 @@ interface ExportScopeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onExport: (scope: 'current' | 'workbook', format: ExportFormat) => Promise<void>;
+  onPreview?: (scope: 'current' | 'workbook') => void;
   currentSheetName: string;
   currentSheetUnmatchedCount: number;
   workbookName: string;
@@ -20,6 +21,7 @@ export const ExportScopeModal: React.FC<ExportScopeModalProps> = ({
   isOpen,
   onClose,
   onExport,
+  onPreview,
   currentSheetName,
   currentSheetUnmatchedCount,
   workbookName,
@@ -257,31 +259,47 @@ export const ExportScopeModal: React.FC<ExportScopeModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 bg-gray-50">
-          <button
-            onClick={handleClose}
-            disabled={isExporting}
-            className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleExport}
-            disabled={isExporting}
-            className="px-6 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-2 shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isExporting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Exporting...
-              </>
-            ) : (
-              <>
-                <Download className="w-4 h-4" />
-                Export {selectedFormat === 'reconciliation' ? 'Report' : 'CSV'}
-              </>
+        <div className="flex items-center justify-between p-6 border-t border-gray-200 bg-gray-50">
+          <div>
+            {selectedFormat === 'reconciliation' && onPreview && (
+              <button
+                onClick={() => {
+                  onPreview(selectedScope);
+                }}
+                disabled={isExporting}
+                className="px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 border border-indigo-200 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Eye className="w-4 h-4" />
+                Preview Report
+              </button>
             )}
-          </button>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleClose}
+              disabled={isExporting}
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleExport}
+              disabled={isExporting}
+              className="px-6 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-2 shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isExporting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  Export {selectedFormat === 'reconciliation' ? 'Report' : 'CSV'}
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
