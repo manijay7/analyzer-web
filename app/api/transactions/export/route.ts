@@ -1,16 +1,20 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
-import { hasPermission } from '@/lib/api-security';
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { hasPermission, rateLimit } from "@/lib/api-security";
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limiting
+    const rateLimitResult = rateLimit(request, 20, 15 * 60 * 1000); // 20 requests per 15 minutes
+    if (rateLimitResult) return rateLimitResult;
+
     // Check authentication
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) {
       return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
+        { success: false, error: "Unauthorized" },
         { status: 401 }
       );
     }
@@ -22,15 +26,15 @@ export async function POST(request: NextRequest) {
 
     if (!user) {
       return NextResponse.json(
-        { success: false, error: 'User not found' },
+        { success: false, error: "User not found" },
         { status: 404 }
       );
     }
 
     // Check export_data permission
-    if (!hasPermission(user.role as any, 'export_data')) {
+    if (!hasPermission(user.role as any, "export_data")) {
       return NextResponse.json(
-        { success: false, error: 'Insufficient permissions' },
+        { success: false, error: "Insufficient permissions" },
         { status: 403 }
       );
     }
@@ -41,21 +45,24 @@ export async function POST(request: NextRequest) {
 
     if (!fileId || !scope) {
       return NextResponse.json(
-        { success: false, error: 'Missing required fields: fileId, scope' },
+        { success: false, error: "Missing required fields: fileId, scope" },
         { status: 400 }
       );
     }
 
-    if (scope !== 'current' && scope !== 'workbook') {
+    if (scope !== "current" && scope !== "workbook") {
       return NextResponse.json(
-        { success: false, error: 'Invalid scope. Must be "current" or "workbook"' },
+        {
+          success: false,
+          error: 'Invalid scope. Must be "current" or "workbook"',
+        },
         { status: 400 }
       );
     }
 
-    if (scope === 'current' && !sheetId) {
+    if (scope === "current" && !sheetId) {
       return NextResponse.json(
-        { success: false, error: 'sheetId required for current sheet scope' },
+        { success: false, error: "sheetId required for current sheet scope" },
         { status: 400 }
       );
     }
@@ -67,7 +74,7 @@ export async function POST(request: NextRequest) {
 
     if (!fileImport) {
       return NextResponse.json(
-        { success: false, error: 'File not found' },
+        { success: false, error: "File not found" },
         { status: 404 }
       );
     }
@@ -78,14 +85,14 @@ export async function POST(request: NextRequest) {
       exportDate: new Date().toISOString(),
     };
 
-    if (scope === 'current') {
+    if (scope === "current") {
       // Export current sheet only
       const sheet = await prisma.sheetImport.findUnique({
         where: { id: sheetId },
         include: {
           transactions: {
             where: {
-              status: 'UNMATCHED',
+              status: "UNMATCHED",
             },
           },
         },
@@ -93,17 +100,18 @@ export async function POST(request: NextRequest) {
 
       if (!sheet) {
         return NextResponse.json(
-          { success: false, error: 'Sheet not found' },
+          { success: false, error: "Sheet not found" },
           { status: 404 }
         );
       }
 
       // Add sheet metadata to each transaction
       // Parse metadata JSON string if needed
-      const parsedMetadata = typeof sheet.metadata === 'string'
-        ? JSON.parse(sheet.metadata)
-        : (sheet.metadata || {});
-      
+      const parsedMetadata =
+        typeof sheet.metadata === "string"
+          ? JSON.parse(sheet.metadata)
+          : sheet.metadata || {};
+
       transactions = sheet.transactions.map((tx) => ({
         ...tx,
         sheetName: sheet.name,
@@ -122,22 +130,23 @@ export async function POST(request: NextRequest) {
         include: {
           transactions: {
             where: {
-              status: 'UNMATCHED',
+              status: "UNMATCHED",
             },
           },
         },
         orderBy: {
-          sheetOrder: 'asc',
+          sheetOrder: "asc",
         },
       });
 
       // Aggregate transactions from all sheets
       for (const sheet of sheets) {
         // Parse metadata JSON string if needed
-        const parsedMetadata = typeof sheet.metadata === 'string'
-          ? JSON.parse(sheet.metadata)
-          : (sheet.metadata || {});
-        
+        const parsedMetadata =
+          typeof sheet.metadata === "string"
+            ? JSON.parse(sheet.metadata)
+            : sheet.metadata || {};
+
         const sheetTransactions = sheet.transactions.map((tx) => ({
           ...tx,
           sheetName: sheet.name,
@@ -159,9 +168,9 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Export API error:', error);
+    console.error("Export API error:", error);
     return NextResponse.json(
-      { success: false, error: 'Internal server error' },
+      { success: false, error: "Internal server error" },
       { status: 500 }
     );
   }

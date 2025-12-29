@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { PrismaClient } from "@prisma/client";
 import { parseExcelFile, generateFileHash } from "@/lib/excel-import";
+import { validateRequest, rateLimit } from "@/lib/api-security";
+import { validateFileUpload } from "@/lib/validation";
 
 const prisma = new PrismaClient();
 
@@ -11,7 +13,14 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
-    // Check authentication
+    // Rate limiting
+    const rateLimitResult = rateLimit(request, 10, 15 * 60 * 1000); // 10 requests per 15 minutes
+    if (rateLimitResult) return rateLimitResult;
+
+    // Check authentication and permissions
+    const { error, status } = await validateRequest("perform_matching");
+    if (error) return NextResponse.json({ error }, { status });
+
     const session = await getServerSession(authOptions);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -26,13 +35,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    // Validate file type
-    if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".xls")) {
+    // Validate file upload
+    const fileValidation = validateFileUpload(file);
+    if (!fileValidation.valid) {
       return NextResponse.json(
-        {
-          error:
-            "Invalid file type. Please upload an Excel file (.xlsx or .xls)",
-        },
+        { error: fileValidation.error },
         { status: 400 }
       );
     }

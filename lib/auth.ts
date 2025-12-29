@@ -1,5 +1,3 @@
-
-
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
@@ -10,17 +8,15 @@ import { userService } from "@/services/UserService";
 import { auditService } from "@/services/AuditService";
 import crypto from "crypto";
 
-// In-memory login attempts tracking
-// WARNING: This implementation resets on server restart and doesn't work across multiple instances
-// For production multi-instance deployments, replace with Redis or database-backed storage
-const loginAttempts: Record<string, { count: number, lockUntil: number }> = {};
+// Database-backed login attempts tracking
+// Uses existing User.failedLoginAttempts and User.lockedUntil fields
 
 // Validate required environment variables
 if (!process.env.NEXTAUTH_SECRET) {
   throw new Error(
-    'NEXTAUTH_SECRET environment variable is not set. ' +
-    'This is required for production deployment. ' +
-    'Generate a secure secret with: openssl rand -base64 32'
+    "NEXTAUTH_SECRET environment variable is not set. " +
+      "This is required for production deployment. " +
+      "Generate a secure secret with: openssl rand -base64 32"
   );
 }
 
@@ -39,7 +35,7 @@ export const authOptions: NextAuthOptions = {
       name: "Credentials",
       credentials: {
         email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" }
+        password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
@@ -48,98 +44,107 @@ export const authOptions: NextAuthOptions = {
 
         const email = credentials.email.toLowerCase();
 
-        // Check Lockout
-        const attempt = loginAttempts[email];
-        if (attempt && attempt.lockUntil > Date.now()) {
-            throw new Error(`Account locked. Try again in ${Math.ceil((attempt.lockUntil - Date.now()) / 60000)} minutes.`);
-        }
-
         try {
           // 1. Find user in database
           const user = await prisma.user.findUnique({
-            where: { email }
+            where: { email },
           });
 
           if (user) {
-            // Check user status
-            if (user.status === 'locked') {
+            // Check user status and lockout
+            if (user.status === "locked") {
               // Check if lock has expired
               if (user.lockedUntil && user.lockedUntil > new Date()) {
-                throw new Error(`Account is locked until ${user.lockedUntil.toLocaleString()}.`);
+                throw new Error(
+                  `Account is locked until ${user.lockedUntil.toLocaleString()}.`
+                );
               } else if (user.lockedUntil && user.lockedUntil <= new Date()) {
                 // Unlock account if lock period expired
                 await prisma.user.update({
                   where: { id: user.id },
-                  data: { status: 'active', lockedUntil: null, failedLoginAttempts: 0 },
+                  data: {
+                    status: "active",
+                    lockedUntil: null,
+                    failedLoginAttempts: 0,
+                  },
                 });
               }
             }
-            
-            if (user.status === 'inactive') {
-              throw new Error("Account is inactive. Please contact administrator.");
+
+            if (user.status === "inactive") {
+              throw new Error(
+                "Account is inactive. Please contact administrator."
+              );
             }
 
-            const isPasswordValid = await compare(credentials.password, user.password);
-            
+            const isPasswordValid = await compare(
+              credentials.password,
+              user.password
+            );
+
             if (!isPasswordValid) {
               // Record failed attempt in database
-              const failedAttempts = await userService.incrementFailedLogins(user.id);
-              
+              const failedAttempts = await userService.incrementFailedLogins(
+                user.id
+              );
+
               // Lock account if max attempts reached
               if (failedAttempts >= MAX_LOGIN_ATTEMPTS) {
                 const lockUntil = new Date(Date.now() + LOCKOUT_TIME_MS);
                 await userService.lockUser(user.id, lockUntil);
-                
+
                 // Log failed login with lockout
                 await auditService.createAuditLog({
                   userId: user.id,
-                  actionType: 'LOGIN',
-                  entityType: 'USER',
+                  actionType: "LOGIN",
+                  entityType: "USER",
                   entityId: user.id,
                   changeSummary: `Failed login attempt - Account locked until ${lockUntil.toLocaleString()}`,
-                  ipAddress: 'Unknown', // Will be added via middleware in Phase 1.4
+                  ipAddress: "Unknown", // Will be added via middleware in Phase 1.4
                 });
-                
-                throw new Error(`Too many failed attempts. Account locked until ${lockUntil.toLocaleString()}.`);
+
+                throw new Error(
+                  `Too many failed attempts. Account locked until ${lockUntil.toLocaleString()}.`
+                );
               }
-              
+
               // Log failed attempt
               await auditService.createAuditLog({
                 userId: user.id,
-                actionType: 'LOGIN',
-                entityType: 'USER',
+                actionType: "LOGIN",
+                entityType: "USER",
                 entityId: user.id,
                 changeSummary: `Failed login attempt (${failedAttempts}/${MAX_LOGIN_ATTEMPTS})`,
               });
-              
+
               return null;
             }
 
             // Success - Update last login and reset failed attempts
             await userService.updateLastLogin(user.id);
-            
+
             // Create device session for tracking
-            const sessionToken = crypto.randomBytes(32).toString('hex');
+            const sessionToken = crypto.randomBytes(32).toString("hex");
             const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-            
+
             await prisma.deviceSession.create({
               data: {
                 userId: user.id,
-                device: 'Web Browser', // Note: Enhanced device fingerprinting requires middleware context
-                ip: 'API Context', // Note: IP address requires request context from API route
+                device: "Web Browser", // Note: Enhanced device fingerprinting requires middleware context
+                ip: "API Context", // Note: IP address requires request context from API route
                 token: sessionToken,
                 expiresAt,
                 isCurrent: true,
               },
             });
-            
+
             // Log successful login
             await auditService.createAuditLog({
               userId: user.id,
-              actionType: 'LOGIN',
-              entityType: 'USER',
+              actionType: "LOGIN",
+              entityType: "USER",
               entityId: user.id,
-              changeSummary: 'Successful login',
+              changeSummary: "Successful login",
               sessionId: sessionToken,
             });
 
@@ -148,14 +153,18 @@ export const authOptions: NextAuthOptions = {
               email: user.email,
               name: user.name,
               role: user.role as UserRole,
-              avatar: user.avatar || 'U',
+              avatar: user.avatar || "U",
               image: user.avatar,
               sessionToken, // Pass session token for tracking
             };
           }
         } catch (error: any) {
           // If the error message is one of our custom ones, rethrow it
-          if (error.message.includes("Account is") || error.message.includes("locked") || error.message.includes("Too many")) {
+          if (
+            error.message.includes("Account is") ||
+            error.message.includes("locked") ||
+            error.message.includes("Too many")
+          ) {
             throw error;
           }
           console.warn("Database auth error:", error);
@@ -163,8 +172,8 @@ export const authOptions: NextAuthOptions = {
 
         // Failed to find user or verify password
         return null;
-      }
-    })
+      },
+    }),
   ],
   callbacks: {
     async session({ session, token }) {
@@ -197,13 +206,13 @@ export const authOptions: NextAuthOptions = {
         try {
           await auditService.createAuditLog({
             userId: token.id as string,
-            actionType: 'LOGOUT',
-            entityType: 'USER',
+            actionType: "LOGOUT",
+            entityType: "USER",
             entityId: token.id as string,
-            changeSummary: 'User logged out',
+            changeSummary: "User logged out",
             sessionId: token.sessionToken as string,
           });
-          
+
           // Mark device session as inactive
           if (token.sessionToken) {
             await prisma.deviceSession.updateMany({
@@ -216,7 +225,7 @@ export const authOptions: NextAuthOptions = {
             });
           }
         } catch (error) {
-          console.error('Error logging signOut:', error);
+          console.error("Error logging signOut:", error);
         }
       }
     },

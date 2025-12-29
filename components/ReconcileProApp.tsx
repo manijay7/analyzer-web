@@ -10,11 +10,14 @@ import { DEFAULT_ROLE_PERMISSIONS, STORAGE_KEY, APP_NAME } from '@/lib/constants
 import { useReconciliationState } from '@/hooks/useReconciliationState';
 import { useFileManagement } from '@/hooks/useFileManagement';
 import { useReconciliationActions } from '@/hooks/useReconciliationActions';
+import { useAppState } from '@/hooks/useAppState';
 import { AuthenticationGuard } from './AuthenticationGuard';
 import { PermissionProvider } from './PermissionProvider';
 import { ViewRouter } from './ViewRouter';
 import { ExportManager } from './ExportManager';
 import { AdminOperations } from './AdminOperations';
+import { UserManagement } from './UserManagement';
+import { RoleManagement } from './RoleManagement';
 
 type ViewMode = 'workspace' | 'admin' | 'import' | 'sync';
 
@@ -34,15 +37,13 @@ export const AnalyzerWebApp: React.FC = () => {
   // Custom Hooks
   const [reconciliationState, reconciliationActions] = useReconciliationState(currentUser);
   const [fileState, fileActions] = useFileManagement(status);
+  const { users, setUsers, roleRequests, setRoleRequests, rolePermissions, setRolePermissions } = useAppState(status);
 
   // State
-  const [users, setUsers] = useState<User[]>([]);
-  const [roleRequests, setRoleRequests] = useState<RoleRequest[]>([]);
   const [currentView, setCurrentView] = useState<ViewMode>('workspace');
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isRoleRequestOpen, setIsRoleRequestOpen] = useState(false);
   const [roleRequestReason, setRoleRequestReason] = useState("");
-  const [rolePermissions, setRolePermissions] = useState<RolePermissions>(DEFAULT_ROLE_PERMISSIONS);
 
   // UI State
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
@@ -57,61 +58,12 @@ export const AnalyzerWebApp: React.FC = () => {
     reconciliationActions,
   });
 
-  // Persistence & Initialization
-  useEffect(() => {
-    const savedData = localStorage.getItem(STORAGE_KEY);
-    if (savedData) {
-      try {
-        const parsed = JSON.parse(savedData);
-        if (parsed.users) setUsers(parsed.users);
-        if (parsed.rolePermissions) setRolePermissions(parsed.rolePermissions);
-        if (parsed.roleRequests) setRoleRequests(parsed.roleRequests);
-      } catch (e) {
-        console.error("Failed to restore session", e);
-      }
-    }
-
-    // Attempt to fetch real users if authenticated
-    if (status === 'authenticated') {
-      fetch('/api/admin/users')
-        .then(res => res.ok ? res.json() : Promise.reject())
-        .then(apiUsers => {
-          if (Array.isArray(apiUsers) && apiUsers.length > 0) {
-            const normalized = apiUsers.map((u: any) => ({
-              ...u,
-              role: u.role as UserRole
-            }));
-            setUsers(normalized);
-          }
-        })
-        .catch(() => {
-          console.log("Could not fetch user list");
-        });
-    }
-  }, [status]);
-
   // Refresh imported files when switching views
   useEffect(() => {
     if ((currentView === 'workspace' || currentView === 'sync') && status === 'authenticated') {
       fileActions.fetchImportedFiles();
     }
   }, [currentView, status]);
-
-  // Save to local storage
-  useEffect(() => {
-    if (!fileState.isInitialized) return;
-    const stateToSave = { users, rolePermissions, roleRequests, timestamp: Date.now() };
-    const existingData = localStorage.getItem(STORAGE_KEY);
-    let parsed = {};
-    if (existingData) {
-      try {
-        parsed = JSON.parse(existingData);
-      } catch (e) {
-        console.error("Failed to parse existing storage", e);
-      }
-    }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...parsed, ...stateToSave }));
-  }, [users, rolePermissions, roleRequests, fileState.isInitialized]);
 
   // Role Requests Handler
   const handleRoleRequest = () => {

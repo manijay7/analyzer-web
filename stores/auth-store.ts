@@ -36,39 +36,11 @@ export const useAuthStore = create<AuthStore>()(
         error: null,
 
         // Actions
-        login: async (credentials) => {
-          set({ isLoading: true, error: null });
-          try {
-            const response = await fetch("/api/auth/login", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(credentials),
-            });
-
-            if (!response.ok) {
-              const errorData = await response.json();
-              throw new Error(errorData.error || "Login failed");
-            }
-
-            const { user, token, expiresAt } = await response.json();
-
-            set({
-              user: {
-                ...user,
-                role: user.role as User["role"],
-              },
-              isAuthenticated: true,
-              permissions: user.permissions || [],
-              sessionExpiry: expiresAt,
-              isLoading: false,
-            });
-          } catch (error) {
-            set({
-              error: error instanceof Error ? error.message : "Login failed",
-              isLoading: false,
-            });
-            throw error;
-          }
+        // Removed broken login method - use next-auth instead
+        login: async () => {
+          throw new Error(
+            "Login handled by next-auth. Use signIn from next-auth/react"
+          );
         },
 
         logout: () => {
