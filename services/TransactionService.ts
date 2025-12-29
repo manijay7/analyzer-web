@@ -1,1 +1,310 @@
-// Transaction Service - Handles transaction-related operations\nimport { BaseService } from './BaseService';\nimport { Prisma } from '@prisma/client';\nimport crypto from 'crypto';\n\n// Type definitions\ntype Transaction = Prisma.TransactionGetPayload<{}>;\n\nexport interface CreateTransactionInput {\n  date: string; // YYYY-MM-DD\n  description: string;\n  amount: number;\n  reference: string;\n  side: 'LEFT' | 'RIGHT';\n  importedById?: string;\n  fileImportId?: string;\n}\n\nexport interface TransactionFilter {\n  date?: string;\n  side?: string;\n  status?: string;\n  matchId?: string;\n  importedById?: string;\n  fileImportId?: string;\n}\n\nexport class TransactionService extends BaseService {\n  /**\n   * Create a new transaction\n   */\n  async createTransaction(input: CreateTransactionInput): Promise<Transaction> {\n    try {\n      const contentHash = this.calculateContentHash(input);\n      \n      const transaction = await this.prisma.transaction.create({\n        data: {\n          date: input.date,\n          description: input.description,\n          amount: input.amount,\n          reference: input.reference,\n          side: input.side,\n          status: 'UNMATCHED',\n          importedById: input.importedById,\n          fileImportId: input.fileImportId,\n          contentHash,\n        },\n      });\n      \n      return transaction;\n    } catch (error) {\n      this.handleError(error, 'TransactionService.createTransaction');\n    }\n  }\n  \n  /**\n   * Bulk create transactions\n   */\n  async createTransactions(\n    inputs: CreateTransactionInput[]\n  ): Promise<{ created: number; skipped: number; duplicates: string[] }> {\n    try {\n      const results = {\n        created: 0,\n        skipped: 0,\n        duplicates: [] as string[],\n      };\n      \n      return await this.executeInTransaction(async () => {\n        for (const input of inputs) {\n          const hash = this.calculateContentHash(input);\n          \n          // Check for duplicate\n          const existing = await this.prisma.transaction.findFirst({\n            where: { contentHash: hash },\n          });\n          \n          if (existing) {\n            results.skipped++;\n            results.duplicates.push(input.reference);\n            continue;\n          }\n          \n          await this.createTransaction(input);\n          results.created++;\n        }\n        \n        return results;\n      });\n    } catch (error) {\n      this.handleError(error, 'TransactionService.createTransactions');\n    }\n  }\n  \n  /**\n   * Get transactions by filter\n   */\n  async getTransactions(filter: TransactionFilter = {}): Promise<Transaction[]> {\n    try {\n      const where: any = {\n        isDeleted: false,\n      };\n      \n      if (filter.date) {\n        where.date = filter.date;\n      }\n      \n      if (filter.side) {\n        where.side = filter.side;\n      }\n      \n      if (filter.status) {\n        where.status = filter.status;\n      }\n      \n      if (filter.matchId !== undefined) {\n        where.matchId = filter.matchId || null;\n      }\n      \n      if (filter.importedById) {\n        where.importedById = filter.importedById;\n      }\n      \n      if (filter.fileImportId) {\n        where.fileImportId = filter.fileImportId;\n      }\n      \n      return await this.prisma.transaction.findMany({\n        where,\n        orderBy: { createdAt: 'asc' },\n      });\n    } catch (error) {\n      this.handleError(error, 'TransactionService.getTransactions');\n    }\n  }\n  \n  /**\n   * Get transactions for a specific date range\n   */\n  async getTransactionsForDateRange(\n    startDate: string,\n    endDate: string,\n    side?: 'LEFT' | 'RIGHT'\n  ): Promise<Transaction[]> {\n    try {\n      const where: any = {\n        isDeleted: false,\n        date: {\n          gte: startDate,\n          lte: endDate,\n        },\n      };\n      \n      if (side) {\n        where.side = side;\n      }\n      \n      return await this.prisma.transaction.findMany({\n        where,\n        orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],\n      });\n    } catch (error) {\n      this.handleError(error, 'TransactionService.getTransactionsForDateRange');\n    }\n  }\n  \n  /**\n   * Update transaction status\n   */\n  async updateTransactionStatus(\n    transactionId: string,\n    status: string,\n    matchId?: string\n  ): Promise<Transaction> {\n    try {\n      return await this.prisma.transaction.update({\n        where: { id: transactionId },\n        data: {\n          status,\n          matchId: matchId || null,\n        },\n      });\n    } catch (error) {\n      this.handleError(error, 'TransactionService.updateTransactionStatus');\n    }\n  }\n  \n  /**\n   * Bulk update transaction statuses\n   */\n  async bulkUpdateTransactionStatus(\n    transactionIds: string[],\n    status: string,\n    matchId?: string\n  ): Promise<number> {\n    try {\n      const result = await this.prisma.transaction.updateMany({\n        where: {\n          id: { in: transactionIds },\n        },\n        data: {\n          status,\n          matchId: matchId || null,\n        },\n      });\n      \n      return result.count;\n    } catch (error) {\n      this.handleError(error, 'TransactionService.bulkUpdateTransactionStatus');\n    }\n  }\n  \n  /**\n   * Soft delete transaction\n   */\n  async deleteTransaction(transactionId: string): Promise<Transaction> {\n    try {\n      return await this.prisma.transaction.update({\n        where: { id: transactionId },\n        data: {\n          isDeleted: true,\n          archivedAt: new Date(),\n        },\n      });\n    } catch (error) {\n      this.handleError(error, 'TransactionService.deleteTransaction');\n    }\n  }\n  \n  /**\n   * Calculate content hash for deduplication\n   */\n  private calculateContentHash(input: CreateTransactionInput): string {\n    const data = `${input.date}|${input.description}|${input.amount}|${input.reference}|${input.side}`;\n    return crypto.createHash('sha256').update(data).digest('hex');\n  }\n  \n  /**\n   * Get transaction summary statistics\n   */\n  async getTransactionSummary(date: string): Promise<{\n    leftTotal: number;\n    rightTotal: number;\n    leftCount: number;\n    rightCount: number;\n    unmatchedLeft: number;\n    unmatchedRight: number;\n    matchedCount: number;\n  }> {\n    try {\n      const transactions = await this.getTransactions({ date });\n      \n      const leftTxs = transactions.filter(t => t.side === 'LEFT');\n      const rightTxs = transactions.filter(t => t.side === 'RIGHT');\n      \n      return {\n        leftTotal: leftTxs.reduce((sum, t) => sum + t.amount, 0),\n        rightTotal: rightTxs.reduce((sum, t) => sum + t.amount, 0),\n        leftCount: leftTxs.length,\n        rightCount: rightTxs.length,\n        unmatchedLeft: leftTxs.filter(t => t.status === 'UNMATCHED').length,\n        unmatchedRight: rightTxs.filter(t => t.status === 'UNMATCHED').length,\n        matchedCount: transactions.filter(t => t.status === 'MATCHED').length,\n      };\n    } catch (error) {\n      this.handleError(error, 'TransactionService.getTransactionSummary');\n    }\n  }\n}\n\n// Export singleton instance\nexport const transactionService = new TransactionService();\n
+import { ApiClient } from "./ApiClient";
+import { Transaction, CreateTransaction } from "@/lib/validation";
+
+export interface TransactionQuery {
+  fileId?: string;
+  sheetId?: string;
+  status?: "UNMATCHED" | "MATCHED";
+  limit?: number;
+  offset?: number;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface TransactionStats {
+  totalCount: number;
+  unmatchedCount: number;
+  matchedCount: number;
+  totalValue: number;
+  unmatchedValue: number;
+  matchedValue: number;
+}
+
+export class TransactionService {
+  constructor(private apiClient: ApiClient) {}
+
+  /**
+   * Get transactions with filtering and pagination
+   */
+  async getTransactions(query: TransactionQuery = {}): Promise<{
+    transactions: Transaction[];
+    totalCount: number;
+    hasMore: boolean;
+  }> {
+    const params = {
+      fileId: query.fileId,
+      sheetId: query.sheetId,
+      status: query.status,
+      limit: query.limit || 100,
+      offset: query.offset || 0,
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    };
+
+    const response = await this.apiClient.get<{
+      transactions: Transaction[];
+      totalCount: number;
+      hasMore: boolean;
+    }>("/api/transactions", params);
+
+    return response;
+  }
+
+  /**
+   * Get transaction by ID
+   */
+  async getTransactionById(id: string): Promise<Transaction> {
+    return this.apiClient.get<Transaction>(`/api/transactions/${id}`);
+  }
+
+  /**
+   * Create new transaction
+   */
+  async createTransaction(
+    transaction: CreateTransaction
+  ): Promise<Transaction> {
+    return this.apiClient.post<Transaction>("/api/transactions", transaction);
+  }
+
+  /**
+   * Bulk create transactions
+   */
+  async createTransactions(transactions: CreateTransaction[]): Promise<{
+    created: Transaction[];
+    failed: { data: CreateTransaction; error: string }[];
+  }> {
+    const response = await this.apiClient.post<{
+      created: Transaction[];
+      failed: { data: CreateTransaction; error: string }[];
+    }>("/api/transactions/bulk", { transactions });
+
+    return response;
+  }
+
+  /**
+   * Update transaction
+   */
+  async updateTransaction(
+    id: string,
+    updates: Partial<Transaction>
+  ): Promise<Transaction> {
+    return this.apiClient.patch<Transaction>(
+      `/api/transactions/${id}`,
+      updates
+    );
+  }
+
+  /**
+   * Delete transaction
+   */
+  async deleteTransaction(id: string): Promise<void> {
+    await this.apiClient.delete(`/api/transactions/${id}`);
+  }
+
+  /**
+   * Bulk delete transactions
+   */
+  async deleteTransactions(ids: string[]): Promise<{
+    deleted: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    const response = await this.apiClient.post<{
+      deleted: string[];
+      failed: { id: string; error: string }[];
+    }>("/api/transactions/bulk-delete", { ids });
+
+    return response;
+  }
+
+  /**
+   * Get transaction statistics
+   */
+  async getTransactionStats(
+    query: {
+      fileId?: string;
+      sheetId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    } = {}
+  ): Promise<TransactionStats> {
+    const response = await this.apiClient.get<TransactionStats>(
+      "/api/transactions/stats",
+      query
+    );
+    return response;
+  }
+
+  /**
+   * Search transactions
+   */
+  async searchTransactions(query: {
+    searchTerm: string;
+    fileId?: string;
+    sheetId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    transactions: Transaction[];
+    totalCount: number;
+    hasMore: boolean;
+  }> {
+    const params = {
+      q: query.searchTerm,
+      fileId: query.fileId,
+      sheetId: query.sheetId,
+      limit: query.limit || 50,
+      offset: query.offset || 0,
+    };
+
+    const response = await this.apiClient.get<{
+      transactions: Transaction[];
+      totalCount: number;
+      hasMore: boolean;
+    }>("/api/transactions/search", params);
+
+    return response;
+  }
+
+  /**
+   * Import transactions from file
+   */
+  async importFromFile(
+    fileId: string,
+    options: {
+      sheetId?: string;
+      validateOnly?: boolean;
+      skipDuplicates?: boolean;
+    } = {}
+  ): Promise<{
+    imported: number;
+    skipped: number;
+    failed: number;
+    errors: string[];
+  }> {
+    const response = await this.apiClient.post<{
+      imported: number;
+      skipped: number;
+      failed: number;
+      errors: string[];
+    }>("/api/transactions/import", {
+      fileId,
+      ...options,
+    });
+
+    return response;
+  }
+
+  /**
+   * Export transactions
+   */
+  async exportTransactions(
+    query: TransactionQuery & {
+      format: "csv" | "excel" | "json";
+      includeMatches?: boolean;
+    }
+  ): Promise<Blob> {
+    const params = {
+      ...query,
+      export: "true",
+    };
+
+    // For binary responses, we need to handle differently
+    const url = this.apiClient["buildURL"]("/api/transactions/export", params);
+    const response = await fetch(url, {
+      headers: this.apiClient["defaultHeaders"],
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Export failed");
+    }
+
+    return response.blob();
+  }
+
+  /**
+   * Validate transaction data
+   */
+  async validateTransaction(transaction: Partial<CreateTransaction>): Promise<{
+    valid: boolean;
+    errors: string[];
+  }> {
+    const response = await this.apiClient.post<{
+      valid: boolean;
+      errors: string[];
+    }>("/api/transactions/validate", transaction);
+
+    return response;
+  }
+
+  /**
+   * Get duplicate transactions
+   */
+  async findDuplicates(
+    criteria: {
+      fileId?: string;
+      sheetId?: string;
+      checkFields?: ("date" | "description" | "amount")[];
+    } = {}
+  ): Promise<{
+    duplicates: {
+      original: Transaction;
+      duplicates: Transaction[];
+    }[];
+    totalDuplicates: number;
+  }> {
+    const response = await this.apiClient.get<{
+      duplicates: {
+        original: Transaction;
+        duplicates: Transaction[];
+      }[];
+      totalDuplicates: number;
+    }>("/api/transactions/duplicates", criteria);
+
+    return response;
+  }
+
+  /**
+   * Get transactions by match group
+   */
+  async getTransactionsByMatch(matchId: string): Promise<Transaction[]> {
+    return this.apiClient.get<Transaction[]>(
+      `/api/matches/${matchId}/transactions`
+    );
+  }
+
+  /**
+   * Update transaction status
+   */
+  async updateTransactionStatus(
+    id: string,
+    status: "UNMATCHED" | "MATCHED",
+    matchId?: string
+  ): Promise<Transaction> {
+    return this.apiClient.patch<Transaction>(`/api/transactions/${id}/status`, {
+      status,
+      matchId,
+    });
+  }
+
+  /**
+   * Bulk update transaction statuses
+   */
+  async bulkUpdateStatus(
+    updates: {
+      id: string;
+      status: "UNMATCHED" | "MATCHED";
+      matchId?: string;
+    }[]
+  ): Promise<{
+    updated: Transaction[];
+    failed: { id: string; error: string }[];
+  }> {
+    const response = await this.apiClient.post<{
+      updated: Transaction[];
+      failed: { id: string; error: string }[];
+    }>("/api/transactions/bulk-status", { updates });
+
+    return response;
+  }
+}

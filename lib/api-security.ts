@@ -1,238 +1,418 @@
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { UserRole, Permission } from "@/lib/types";
-import { DEFAULT_ROLE_PERMISSIONS } from "@/lib/constants";
-import { auditService } from "@/services/AuditService";
-import { NextRequest } from "next/server";
+import { z } from "zod";
+import {
+  validateData,
+  sanitizeHtml,
+  validateFileUpload,
+  UserSchema,
+  LoginRequestSchema,
+  CreateMatchSchema,
+  ExportRequestSchema,
+} from "@/lib/validation";
+
+// ============================================================================
+// PERMISSION MATRIX
+// ============================================================================
+
+const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
+  ADMIN: [
+    "manage_users",
+    "view_admin_panel",
+    "unmatch_transactions",
+    "view_all_logs",
+    "export_data",
+    "perform_matching",
+    "manage_periods",
+    "approve_adjustments",
+  ],
+  MANAGER: [
+    "unmatch_transactions",
+    "view_all_logs",
+    "export_data",
+    "perform_matching",
+    "approve_adjustments",
+  ],
+  ANALYST: ["export_data", "perform_matching"],
+  AUDITOR: ["view_all_logs", "export_data"],
+};
+
+// ============================================================================
+// AUTHENTICATION HELPERS
+// ============================================================================
 
 /**
- * Extract client IP address from request
+ * Get authenticated user from session
  */
-export function getClientIp(request: NextRequest | Request): string {
-  // Try various headers for IP address
-  const forwarded = (request.headers as any).get?.('x-forwarded-for');
-  const realIp = (request.headers as any).get?.('x-real-ip');
-  const cfConnectingIp = (request.headers as any).get?.('cf-connecting-ip');
-  
-  if (forwarded) {
-    return forwarded.split(',')[0].trim();
-  }
-  
-  if (realIp) {
-    return realIp;
-  }
-  
-  if (cfConnectingIp) {
-    return cfConnectingIp;
-  }
-  
-  return 'unknown';
-}
-
-/**
- * Extract user agent from request
- */
-export function getUserAgent(request: NextRequest | Request): string {
-  return (request.headers as any).get?.('user-agent') || 'unknown';
-}
-
-/**
- * Generate device fingerprint from request metadata
- */
-export function generateDeviceFingerprint(request: NextRequest | Request): string {
-  const userAgent = getUserAgent(request);
-  const acceptLanguage = (request.headers as any).get?.('accept-language') || '';
-  const acceptEncoding = (request.headers as any).get?.('accept-encoding') || '';
-  
-  const crypto = require('crypto');
-  const data = `${userAgent}|${acceptLanguage}|${acceptEncoding}`;
-  return crypto.createHash('sha256').update(data).digest('hex').substring(0, 16);
-}
-
-interface ValidationOptions {
-  requiredPermission?: Permission;
-  logAction?: boolean;
-  actionType?: string;
-  entityType?: string;
-  entityId?: string;
-}
-
-interface ValidationResult {
-  error?: string;
-  status?: number;
-  user?: any;
-  ipAddress?: string;
-  deviceFingerprint?: string;
-}
-
-/**
- * Enhanced request validation with audit logging and metadata extraction
- */
-export async function validateRequest(
-  requiredPermission?: Permission,
-  request?: NextRequest | Request
-): Promise<ValidationResult> {
+export async function getAuthenticatedUser() {
   const session = await getServerSession(authOptions);
-
-  if (!session || !session.user) {
-    return { error: "Unauthorized", status: 401 };
+  if (!session?.user?.email) {
+    throw new Error("Unauthorized");
   }
 
-  // Extract request metadata if provided
-  const ipAddress = request ? getClientIp(request) : undefined;
-  const deviceFingerprint = request ? generateDeviceFingerprint(request) : undefined;
-
-  // Check permission if required
-  if (requiredPermission) {
-    const userRole = session.user.role as UserRole;
-    const permissions = DEFAULT_ROLE_PERMISSIONS[userRole] || [];
-    
-    if (!permissions.includes(requiredPermission)) {
-      // Log unauthorized access attempt
-      if (session.user.id) {
-        try {
-          await auditService.createAuditLog({
-            userId: session.user.id,
-            actionType: 'UPDATE',
-            entityType: 'USER',
-            entityId: session.user.id,
-            changeSummary: `Unauthorized access attempt - Required permission: ${requiredPermission}`,
-            ipAddress,
-            deviceFingerprint,
-          });
-        } catch (error) {
-          console.error('Failed to log unauthorized access:', error);
-        }
-      }
-      return { error: "Forbidden: Insufficient Permissions", status: 403 };
-    }
-  }
-
+  // In a real implementation, you'd fetch the full user from database
+  // For now, we'll assume the session user has the required fields
   return {
-    user: session.user,
-    ipAddress,
-    deviceFingerprint,
+    id: session.user.id,
+    email: session.user.email,
+    name: session.user.name || "Unknown",
+    role: session.user.role as UserRole,
+    permissions: ROLE_PERMISSIONS[session.user.role as UserRole] || [],
   };
 }
 
 /**
- * Validate and log API action
+ * Check if user has required permission
  */
-export async function validateAndLogAction(
-  requiredPermission: Permission,
-  actionType: string,
-  entityType: string,
-  entityId: string,
-  changeSummary: string,
-  request?: NextRequest | Request,
-  beforeState?: any,
-  afterState?: any
-): Promise<ValidationResult> {
-  const validation = await validateRequest(requiredPermission, request);
-  
-  if (validation.error) {
-    return validation;
-  }
-  
-  // Log the action
+export function hasPermission(
+  userRole: UserRole,
+  permission: Permission
+): boolean {
+  return ROLE_PERMISSIONS[userRole]?.includes(permission) ?? false;
+}
+
+/**
+ * Check if user has any of the required permissions
+ */
+export function hasAnyPermission(
+  userRole: UserRole,
+  permissions: Permission[]
+): boolean {
+  return permissions.some((perm) => hasPermission(userRole, perm));
+}
+
+/**
+ * Check if user has all required permissions
+ */
+export function hasAllPermissions(
+  userRole: UserRole,
+  permissions: Permission[]
+): boolean {
+  return permissions.every((perm) => hasPermission(userRole, perm));
+}
+
+// ============================================================================
+// MIDDLEWARE FUNCTIONS
+// ============================================================================
+
+/**
+ * Authentication middleware
+ */
+export async function requireAuth(request: NextRequest) {
   try {
-    await auditService.createAuditLog({
-      userId: validation.user.id,
-      sessionId: (validation.user as any).sessionToken,
-      ipAddress: validation.ipAddress,
-      deviceFingerprint: validation.deviceFingerprint,
-      actionType,
-      entityType,
-      entityId,
-      changeSummary,
-      beforeState,
-      afterState,
-    });
+    const user = await getAuthenticatedUser();
+    return { user };
   } catch (error) {
-    console.error('Failed to log action:', error);
+    return NextResponse.json(
+      { success: false, error: "Unauthorized" },
+      { status: 401 }
+    );
   }
-  
-  return validation;
 }
 
 /**
- * Check if user has specific permission
+ * Permission middleware
  */
-export function hasPermission(userRole: UserRole, permission: Permission): boolean {
-  const permissions = DEFAULT_ROLE_PERMISSIONS[userRole] || [];
-  return permissions.includes(permission);
-}
+export async function requirePermission(
+  request: NextRequest,
+  permission: Permission
+) {
+  const authResult = await requireAuth(request);
+  if (authResult instanceof NextResponse) return authResult;
 
-/**
- * Get all permissions for a role
- */
-export function getRolePermissions(userRole: UserRole): Permission[] {
-  return DEFAULT_ROLE_PERMISSIONS[userRole] || [];
-}
-
-/**
- * CSRF Protection Note:
- * NextAuth automatically handles CSRF protection for authentication routes.
- * For additional API routes, consider implementing CSRF tokens if needed.
- * 
- * Current Implementation: Relies on NextAuth's built-in CSRF protection
- * Future Enhancement: Add custom CSRF middleware if required for non-auth routes
- */
-
-// Simple in-memory rate limiting (single-instance deployment only)
-// For multi-instance deployments, replace with Redis-backed implementation
-const rateLimitStore: Record<string, { count: number; resetTime: number }> = {};
-
-/**
- * Basic rate limiting implementation
- * 
- * WARNING: This is an in-memory implementation suitable for single-instance deployments only.
- * For production deployments with multiple instances, replace with Redis or equivalent.
- * 
- * @param identifier - Unique identifier (e.g., user ID, IP address)
- * @param limit - Maximum number of requests allowed in window
- * @param windowMs - Time window in milliseconds
- * @returns Object indicating if request is allowed and remaining quota
- */
-export async function checkRateLimit(
-  identifier: string,
-  limit: number = 100,
-  windowMs: number = 60000
-): Promise<{ allowed: boolean; remaining: number }> {
-  const now = Date.now();
-  const key = `ratelimit:${identifier}`;
-  
-  // Get or initialize rate limit record
-  let record = rateLimitStore[key];
-  
-  // Reset if window has expired
-  if (!record || now > record.resetTime) {
-    record = {
-      count: 0,
-      resetTime: now + windowMs
-    };
-    rateLimitStore[key] = record;
+  const { user } = authResult;
+  if (!hasPermission(user.role, permission)) {
+    return NextResponse.json(
+      { success: false, error: "Insufficient permissions" },
+      { status: 403 }
+    );
   }
-  
-  // Increment counter
-  record.count++;
-  
-  // Check if limit exceeded
-  const allowed = record.count <= limit;
-  const remaining = Math.max(0, limit - record.count);
-  
-  return { allowed, remaining };
+
+  return { user };
 }
 
 /**
- * Clean up expired rate limit records (should be called periodically)
- * Call this from a cron job or scheduled task
+ * Validate request with permission check (for backward compatibility)
  */
-export function cleanupExpiredRateLimits(): void {
-  const now = Date.now();
-  Object.keys(rateLimitStore).forEach(key => {
-    if (rateLimitStore[key].resetTime < now) {
-      delete rateLimitStore[key];
+export async function validateRequest(permission: Permission) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return { error: "Unauthorized", status: 401 };
     }
-  });
+
+    const userRole = session.user.role as UserRole;
+    if (!hasPermission(userRole, permission)) {
+      return { error: "Insufficient permissions", status: 403 };
+    }
+
+    return {
+      user: {
+        id: session.user.id,
+        email: session.user.email,
+        name: session.user.name || "Unknown",
+        role: userRole,
+        permissions: ROLE_PERMISSIONS[userRole] || [],
+      },
+    };
+  } catch (error) {
+    return { error: "Authentication failed", status: 401 };
+  }
+}
+
+/**
+ * Multiple permissions middleware (OR condition)
+ */
+export async function requireAnyPermission(
+  request: NextRequest,
+  permissions: Permission[]
+) {
+  const authResult = await requireAuth(request);
+  if (authResult instanceof NextResponse) return authResult;
+
+  const { user } = authResult;
+  if (!hasAnyPermission(user.role, permissions)) {
+    return NextResponse.json(
+      { success: false, error: "Insufficient permissions" },
+      { status: 403 }
+    );
+  }
+
+  return { user };
+}
+
+// ============================================================================
+// INPUT VALIDATION MIDDLEWARE
+// ============================================================================
+
+/**
+ * Validate request body against Zod schema
+ */
+export async function validateRequestBody<T>(
+  request: NextRequest,
+  schema: z.ZodSchema<T>
+): Promise<{ data: T } | NextResponse> {
+  try {
+    const body = await request.json();
+    const validatedData = validateData(schema, body);
+    return { data: validatedData };
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Invalid request data",
+        details: error instanceof Error ? error.message : "Validation failed",
+      },
+      { status: 400 }
+    );
+  }
+}
+
+/**
+ * Validate query parameters
+ */
+export function validateQueryParams(
+  request: NextRequest,
+  requiredParams: string[] = [],
+  optionalParams: string[] = []
+): { params: Record<string, string> } | NextResponse {
+  const { searchParams } = new URL(request.url);
+  const params: Record<string, string> = {};
+
+  // Check required parameters
+  for (const param of requiredParams) {
+    const value = searchParams.get(param);
+    if (!value) {
+      return NextResponse.json(
+        { success: false, error: `Missing required parameter: ${param}` },
+        { status: 400 }
+      );
+    }
+    params[param] = value;
+  }
+
+  // Get optional parameters
+  for (const param of optionalParams) {
+    const value = searchParams.get(param);
+    if (value) params[param] = value;
+  }
+
+  return { params };
+}
+
+// ============================================================================
+// SECURITY HEADERS & SANITIZATION
+// ============================================================================
+
+/**
+ * Add security headers to response
+ */
+export function addSecurityHeaders(response: NextResponse) {
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("X-XSS-Protection", "1; mode=block");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+
+  // Content Security Policy
+  const cspDirectives = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: https:",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "object-src 'none'",
+    "frame-src 'none'",
+  ];
+  response.headers.set("Content-Security-Policy", cspDirectives.join("; "));
+
+  return response;
+}
+
+/**
+ * Sanitize user input to prevent XSS
+ */
+export function sanitizeInput(input: any): any {
+  if (typeof input === "string") {
+    return sanitizeHtml(input);
+  }
+
+  if (Array.isArray(input)) {
+    return input.map(sanitizeInput);
+  }
+
+  if (input && typeof input === "object") {
+    const sanitized: any = {};
+    for (const [key, value] of Object.entries(input)) {
+      sanitized[key] = sanitizeInput(value);
+    }
+    return sanitized;
+  }
+
+  return input;
+}
+
+// ============================================================================
+// RATE LIMITING (SIMPLE IN-MEMORY IMPLEMENTATION)
+// ============================================================================
+
+const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
+
+/**
+ * Simple rate limiting middleware
+ */
+export function rateLimit(
+  request: NextRequest,
+  maxRequests: number = 100,
+  windowMs: number = 15 * 60 * 1000 // 15 minutes
+): NextResponse | null {
+  const ip = request.ip || "unknown";
+  const key = `${ip}:${request.nextUrl.pathname}`;
+  const now = Date.now();
+
+  const current = rateLimitStore.get(key);
+  if (!current || now > current.resetTime) {
+    rateLimitStore.set(key, { count: 1, resetTime: now + windowMs });
+    return null;
+  }
+
+  if (current.count >= maxRequests) {
+    return NextResponse.json(
+      { success: false, error: "Too many requests" },
+      { status: 429 }
+    );
+  }
+
+  current.count++;
+  return null;
+}
+
+// ============================================================================
+// COMBINED MIDDLEWARE
+// ============================================================================
+
+/**
+ * Combined middleware for API routes
+ */
+export async function apiMiddleware(
+  request: NextRequest,
+  options: {
+    requireAuth?: boolean;
+    permission?: Permission;
+    permissions?: Permission[];
+    rateLimit?: { maxRequests?: number; windowMs?: number };
+    validateBody?: any;
+  } = {}
+) {
+  // Rate limiting
+  if (options.rateLimit) {
+    const rateLimitResult = rateLimit(
+      request,
+      options.rateLimit.maxRequests,
+      options.rateLimit.windowMs
+    );
+    if (rateLimitResult) return rateLimitResult;
+  }
+
+  // Authentication
+  let user: any = null;
+  if (options.requireAuth !== false) {
+    const authResult = await requireAuth(request);
+    if (authResult instanceof NextResponse) return authResult;
+    user = authResult.user;
+  }
+
+  // Permissions
+  if (options.permission) {
+    const permResult = await requirePermission(request, options.permission);
+    if (permResult instanceof NextResponse) return permResult;
+  }
+
+  if (options.permissions) {
+    const permResult = await requireAnyPermission(request, options.permissions);
+    if (permResult instanceof NextResponse) return permResult;
+  }
+
+  // Body validation
+  let validatedData: any = null;
+  if (options.validateBody) {
+    const validationResult = await validateRequestBody(
+      request,
+      options.validateBody
+    );
+    if (validationResult instanceof NextResponse) return validationResult;
+    validatedData = validationResult.data;
+  }
+
+  return { user, data: validatedData };
+}
+
+// ============================================================================
+// ERROR HANDLING
+// ============================================================================
+
+/**
+ * Standardized API error response
+ */
+export function apiError(message: string, status: number = 500, details?: any) {
+  return NextResponse.json(
+    {
+      success: false,
+      error: message,
+      ...(details && { details }),
+    },
+    { status }
+  );
+}
+
+/**
+ * Standardized API success response
+ */
+export function apiSuccess(data: any, status: number = 200) {
+  return NextResponse.json({ success: true, data }, { status });
 }

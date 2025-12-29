@@ -5,14 +5,15 @@ import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Lock, Mail, Loader2, AlertCircle, BarChart3, TrendingUp, Shield } from 'lucide-react';
 import { APP_NAME } from '@/lib/constants';
+import { useAuthStore } from '@/stores';
 
 export default function LoginPage() {
   const router = useRouter();
   const { status } = useSession();
+  const { login, isLoading, error: authError, initializeAuth } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [localError, setLocalError] = useState('');
 
   useEffect(() => {
     if (status === 'authenticated') {
@@ -22,26 +23,15 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
+    setLocalError('');
 
     try {
-      const result = await signIn('credentials', {
-        redirect: false, // Handle client side to prevent reload if fails
-        email,
-        password,
-      });
-
-      if (result?.error) {
-        setError('Invalid credentials. Please try again.');
-        setLoading(false);
-      } else if (result?.ok) {
-        // Successful login - hard navigate to ensure fresh session state
-        window.location.href = '/';
-      }
+      await login({ email, password });
+      // Successful login - the store will handle navigation
+      window.location.href = '/';
     } catch (error) {
-      setError('An unexpected error occurred.');
-      setLoading(false);
+      // Error is handled by the store, but we can show additional local error if needed
+      setLocalError('Login failed. Please check your credentials.');
     }
   };
 
@@ -155,10 +145,10 @@ export default function LoginPage() {
             </div>
 
             <form className="space-y-6" onSubmit={handleSubmit}>
-              {error && (
+              {(authError || localError) && (
                 <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
                   <AlertCircle size={16} />
-                  {error}
+                  {authError || localError}
                 </div>
               )}
 
@@ -209,10 +199,10 @@ export default function LoginPage() {
               <div>
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={isLoading}
                   className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-[#E85D1C] hover:bg-[#C74915] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#E85D1C] disabled:opacity-70 disabled:cursor-not-allowed transition-all"
                 >
-                  {loading ? (
+                  {isLoading ? (
                     <div className="flex items-center gap-2">
                       <Loader2 className="w-5 h-5 animate-spin" />
                       Signing in...

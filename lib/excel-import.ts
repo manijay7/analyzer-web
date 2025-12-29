@@ -283,12 +283,13 @@ export function parseSheetData(jsonData: any[][], sheetName: string) {
 
 // Parse Excel file into transaction sets
 export async function parseExcelFile(
-  buffer: Buffer,
+  buffer: Buffer | ArrayBuffer,
   fileName: string
 ): Promise<TransactionSet[]> {
   try {
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(buffer);
+    // Type assertion to bypass TypeScript strict checking
+    await workbook.xlsx.load(buffer as any);
     const transactionSets: TransactionSet[] = [];
 
     workbook.worksheets.forEach((worksheet, index) => {

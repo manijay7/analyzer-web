@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Parse Excel file
-        const transactionSets = parseExcelFile(fileBuffer, fileName);
+        const transactionSets = await parseExcelFile(fileBuffer, fileName);
 
         if (transactionSets.length === 0) {
           console.log(`[FolderSync] No valid sheets in: ${fileName}`);

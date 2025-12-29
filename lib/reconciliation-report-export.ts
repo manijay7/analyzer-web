@@ -169,16 +169,18 @@ export function generateCustomReconciliationReport(
   const sheetImportMeta = options.sheetImport?.metaData || {};
 
   // Extract metadata with fallbacks
-  const dept = metadata["DEPT"] || sheetImportMeta["DEPT"] || "";
-  const branch = metadata["BRANCH"] || sheetImportMeta["BRANCH"] || "";
+  const dept =
+    (metadata as any)["DEPT"] || (sheetImportMeta as any)["DEPT"] || "";
+  const branch =
+    (metadata as any)["BRANCH"] || (sheetImportMeta as any)["BRANCH"] || "";
   const reportingDate = formatReportDate(
     sheetImportMeta.reportingDate ||
       metadata["REPORTING DATE"] ||
       new Date().toISOString().split("T")[0]
   );
   const reportingUnit =
-    metadata["REPORTING UNIT"] ||
-    sheetImportMeta["REPORTING UNIT"] ||
+    (metadata as any)["REPORTING UNIT"] ||
+    (sheetImportMeta as any)["REPORTING UNIT"] ||
     "RECONCILIATION";
   const bankAccountNumber =
     sheetImportMeta.bankAccountNumber || metadata["BANK ACCOUNT NUMBER"] || "";
@@ -445,10 +447,10 @@ export function generateCustomReconciliationReport(
 
   // Row n: Prepared by (from sheet metadata - who originally prepared it)
   const preparedBy =
-    metadata["PREPARED BY:"] ||
-    metadata["PREPARED BY"] ||
-    sheetImportMeta["PREPARED BY:"] ||
-    sheetImportMeta["PREPARED BY"] ||
+    (metadata as any)["PREPARED BY:"] ||
+    (metadata as any)["PREPARED BY"] ||
+    (sheetImportMeta as any)["PREPARED BY:"] ||
+    (sheetImportMeta as any)["PREPARED BY"] ||
     sheetImportMeta.preparedBy ||
     "Unknown";
   lines.push(`,,,PREPARED BY:,${escapeCSV(preparedBy)},DATE,${reportingDate},`);
