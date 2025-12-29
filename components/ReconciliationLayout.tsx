@@ -8,13 +8,13 @@ import { ExportScopeModal, ExportFormat } from './ExportScopeModal';
 import { AppHeader } from './AppHeader';
 import { User, AuditLogEntry, SystemSnapshot } from '@/lib/types';
 import { ExportTransaction } from '@/lib/csv-export';
+import { usePermissions } from './PermissionProvider';
 
 type ViewMode = 'workspace' | 'admin' | 'import' | 'sync';
 
 interface ReconciliationLayoutProps {
   currentView: ViewMode;
   currentUser: User;
-  canAccessAdmin: boolean;
   isUserMenuOpen: boolean;
   isRoleRequestOpen: boolean;
   roleRequestReason: string;
@@ -62,7 +62,6 @@ interface ReconciliationLayoutProps {
 export const ReconciliationLayout: React.FC<ReconciliationLayoutProps> = ({
   currentView,
   currentUser,
-  canAccessAdmin,
   isUserMenuOpen,
   isRoleRequestOpen,
   roleRequestReason,
@@ -105,6 +104,8 @@ export const ReconciliationLayout: React.FC<ReconciliationLayoutProps> = ({
   totalSheetsCount,
   totalWorkbookUnmatchedCount
 }) => {
+  const { canAccessAdmin } = usePermissions();
+  
   return (
     <div className="min-h-screen flex flex-col font-sans text-gray-900 bg-[#f8fafc]">
       <ReconciliationReportPreviewModal

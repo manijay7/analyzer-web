@@ -162,7 +162,6 @@ export const AnalyzerWebApp: React.FC = () => {
         <ReconciliationLayout
           currentView={currentView}
           currentUser={currentUser}
-          canAccessAdmin={false} // Will be provided by PermissionProvider
           isUserMenuOpen={isUserMenuOpen}
           isRoleRequestOpen={isRoleRequestOpen}
           roleRequestReason={roleRequestReason}
