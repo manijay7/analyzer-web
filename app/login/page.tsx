@@ -5,14 +5,13 @@ import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Lock, Mail, Loader2, AlertCircle, BarChart3, TrendingUp, Shield } from 'lucide-react';
 import { APP_NAME } from '@/lib/constants';
-import { useAuthStore } from '@/stores';
 
 export default function LoginPage() {
   const router = useRouter();
   const { status } = useSession();
-  const { login, isLoading, error: authError, initializeAuth } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [localError, setLocalError] = useState('');
 
   useEffect(() => {
@@ -24,14 +23,25 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError('');
+    setIsLoading(true);
 
     try {
-      await login({ email, password });
-      // Successful login - the store will handle navigation
-      window.location.href = '/';
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        setLocalError('Invalid email or password. Please try again.');
+        setIsLoading(false);
+      } else if (result?.ok) {
+        // Successful login
+        router.push('/');
+      }
     } catch (error) {
-      // Error is handled by the store, but we can show additional local error if needed
       setLocalError('Login failed. Please check your credentials.');
+      setIsLoading(false);
     }
   };
 
@@ -145,10 +155,10 @@ export default function LoginPage() {
             </div>
 
             <form className="space-y-6" onSubmit={handleSubmit}>
-              {(authError || localError) && (
+              {localError && (
                 <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
                   <AlertCircle size={16} />
-                  {authError || localError}
+                  {localError}
                 </div>
               )}
 
