@@ -27,16 +27,12 @@ export default withAuth(
     const cspDirectives = [
       "default-src 'self'",
       isDevelopment
-        ? "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.tailwindcss.com https://aistudiocdn.com"
-        : "script-src 'self' https://cdn.tailwindcss.com https://aistudiocdn.com",
-      isDevelopment
-        ? "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com"
-        : "style-src 'self' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data: https:",
-      isDevelopment
-        ? "connect-src 'self' https://aistudiocdn.com ws: wss:"
-        : "connect-src 'self' https://aistudiocdn.com",
+        ? "script-src 'self' 'unsafe-eval' 'unsafe-inline'"
+        : "script-src 'self' 'unsafe-inline'",
+      isDevelopment ? "style-src 'self' 'unsafe-inline'" : "style-src 'self'",
+      "font-src 'self'",
+      "img-src 'self'",
+      isDevelopment ? "connect-src 'self' ws: wss:" : "connect-src 'self'",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",

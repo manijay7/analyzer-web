@@ -255,13 +255,13 @@ export function addSecurityHeaders(response: NextResponse) {
   response.headers.set("X-XSS-Protection", "1; mode=block");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
 
-  // Content Security Policy
+  // Content Security Policy - Bank Intranet Compatible
   const cspDirectives = [
     "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data: https:",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self'",
+    "font-src 'self'",
+    "img-src 'self'",
     "connect-src 'self'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
