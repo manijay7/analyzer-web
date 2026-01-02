@@ -36,6 +36,7 @@ export interface User {
   status?: "active" | "inactive" | "locked";
   lastLogin?: number;
   failedLoginAttempts?: number;
+  mustChangePassword?: boolean;
 }
 
 export interface Transaction {

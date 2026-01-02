@@ -156,6 +156,7 @@ export const authOptions: NextAuthOptions = {
               avatar: user.avatar || "U",
               image: user.avatar,
               sessionToken, // Pass session token for tracking
+              mustChangePassword: (user as any).mustChangePassword || false,
             };
           }
         } catch (error: any) {
@@ -184,6 +185,8 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).role = token.role as UserRole;
         (session.user as any).avatar = token.avatar as string;
         (session.user as any).sessionToken = token.sessionToken as string;
+        (session.user as any).mustChangePassword =
+          token.mustChangePassword as boolean;
       }
       return session;
     },
@@ -195,6 +198,7 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role;
         token.avatar = user.avatar;
         token.sessionToken = (user as any).sessionToken;
+        token.mustChangePassword = (user as any).mustChangePassword;
       }
       return token;
     },

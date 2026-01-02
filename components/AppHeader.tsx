@@ -1,6 +1,6 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Scale,
   RefreshCw,
@@ -26,10 +26,12 @@ import {
   Save,
   MessageCircle,
   UserPlus,
-  FolderSync
+  FolderSync,
+  KeyRound
 } from 'lucide-react';
 import { UserRole, Permission } from '@/lib/types';
 import { APP_NAME } from '@/lib/constants';
+import { PasswordChangeModal } from './PasswordChangeModal';
 
 type ViewMode = 'workspace' | 'admin' | 'import' | 'sync';
 
@@ -40,6 +42,7 @@ interface AppHeaderProps {
     name: string;
     role: UserRole;
     avatar?: string;
+    mustChangePassword?: boolean;
   };
   canAccessAdmin: boolean;
   isUserMenuOpen: boolean;
@@ -86,6 +89,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   onAuditModalOpen,
   onExport,
 }) => {
+  const [isPasswordChangeOpen, setIsPasswordChangeOpen] = useState(false);
+  
   return (
     <>
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
@@ -170,6 +175,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                       Request Access
                     </button>
                   )}
+                  <button
+                    onClick={() => {
+                      onUserMenuToggle();
+                      setIsPasswordChangeOpen(true);
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                  >
+                    <KeyRound size={14} />
+                    Change Password
+                  </button>
                   <div className="border-t border-gray-100 mt-1 pt-1">
                     <button
                       onClick={onLogout}
@@ -265,6 +280,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </div>
         </div>
       )}
+      
+      {/* Password Change Modal */}
+      <PasswordChangeModal 
+        isOpen={isPasswordChangeOpen}
+        onClose={() => setIsPasswordChangeOpen(false)}
+        mustChange={currentUser.mustChangePassword}
+      />
     </>
   );
 };

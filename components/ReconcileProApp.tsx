@@ -31,8 +31,9 @@ export const AnalyzerWebApp: React.FC = () => {
     email: session.user.email || '',
     role: session.user.role || UserRole.Analyst,
     avatar: session.user.avatar || 'U',
-    status: 'active'
-  } : { id: 'guest', name: 'Guest', role: UserRole.Analyst, avatar: 'G', email: '' };
+    status: 'active',
+    mustChangePassword: (session.user as any).mustChangePassword || false
+  } : { id: 'guest', name: 'Guest', role: UserRole.Analyst, avatar: 'G', email: '', mustChangePassword: false };
 
   // Custom Hooks
   const [reconciliationState, reconciliationActions] = useReconciliationState(currentUser);

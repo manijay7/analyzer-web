@@ -33,6 +33,7 @@ model User {
   failedLoginAttempts Int       @default(0)
   lockedUntil        DateTime?
   passwordChangedAt  DateTime  @default(now())
+  mustChangePassword Boolean   @default(false) // Force password change on next login
   
   // Timestamps
   createdAt DateTime @default(now())
